@@ -3,6 +3,8 @@ Motor de geração de PDF para declarações de pagamento da ANSEF/CAS.
 Renderiza o template HTML com Jinja2 e converte para PDF usando xhtml2pdf.
 Compatível com Streamlit Cloud e ambiente local Windows.
 """
+from __future__ import annotations
+
 import os
 import io
 import base64
@@ -12,13 +14,22 @@ from datetime import date, datetime
 
 from jinja2 import Template
 
-from src.utils import (
-    formatar_cpf,
-    formatar_moeda,
-    mes_por_extenso,
-    data_por_extenso,
-    valor_por_extenso,
-)
+try:
+    from src.utils import (
+        formatar_cpf,
+        formatar_moeda,
+        mes_por_extenso,
+        data_por_extenso,
+        valor_por_extenso,
+    )
+except ImportError:
+    from utils import (
+        formatar_cpf,
+        formatar_moeda,
+        mes_por_extenso,
+        data_por_extenso,
+        valor_por_extenso,
+    )
 
 logger = logging.getLogger(__name__)
 

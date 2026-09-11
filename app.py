@@ -7,10 +7,23 @@ from __future__ import annotations
 import sys
 import os
 
-# Garante que o diretório raiz da aplicação esteja sempre em sys.path (indispensável no Streamlit Cloud)
+# Garante que o diretório raiz da aplicação e src estejam sempre em sys.path (indispensável no Streamlit Cloud)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.join(BASE_DIR, "src")
+
+# No Streamlit Cloud (/mount/src/ansef-declaracoes), o Python pode carregar '/mount/src'
+# como namespace package 'src', mascarando o pacote local. Removemos qualquer 'src' externo:
+if "src" in sys.modules:
+    mod = sys.modules["src"]
+    mod_file = getattr(mod, "__file__", None) or ""
+    mod_paths = getattr(mod, "__path__", [])
+    if not str(mod_file).startswith(BASE_DIR) and not any(str(p).startswith(BASE_DIR) for p in mod_paths):
+        del sys.modules["src"]
+
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 import json
 import io
@@ -20,68 +33,132 @@ from datetime import date, datetime
 import streamlit as st
 import pandas as pd
 
-from src.database import (
-    inicializar_banco,
-    listar_titulares,
-    buscar_grupo_familiar,
-    criar_solicitacao,
-    listar_solicitacoes_titular,
-    listar_solicitacoes_pendentes,
-    listar_todas_solicitacoes,
-    obter_solicitacao,
-    aprovar_solicitacao,
-    rejeitar_solicitacao,
-    cancelar_aprovacao,
-    listar_solicitacoes_aprovadas,
-    listar_todos_membros,
-    atualizar_valor_membro,
-    reajustar_valores_lote,
-    contar_solicitacoes_por_status,
-    contar_aprovadas_mes_atual,
-    obter_tabela_faixas,
-    atualizar_tabela_faixa,
-    reajustar_tabela_faixas_percentual,
-    recalcular_mensalidades_membros,
-    verificar_migracoes_grupo,
-    listar_todas_migracoes,
-    calcular_idade,
-    determinar_faixa_etaria,
-    adicionar_titular,
-    adicionar_dependente,
-    excluir_membro,
-    excluir_grupo_familiar,
-    obter_config_uniodonto,
-    atualizar_valor_uniodonto,
-    reajustar_valor_uniodonto_percentual,
-    obter_uniodonto_titular,
-    listar_todos_uniodonto,
-    salvar_uniodonto_titular,
-    remover_uniodonto_titular,
-)
-from src.auth import (
-    login_associado,
-    logout_associado,
-    is_associado_logado,
-    get_associado_logado,
-    login_admin,
-    logout_admin,
-    is_admin_logado,
-)
-from src.email_service import (
-    notificar_administrador_nova_solicitacao,
-    notificar_administrador_migracao_faixa,
-    verificar_status_smtp,
-    enviar_email_teste,
-)
-from src.pdf_generator import gerar_pdf_declaracao
-from src.utils import (
-    formatar_cpf,
-    formatar_moeda,
-    validar_cpf,
-    limpar_cpf,
-    mes_por_extenso,
-    MESES_OPCOES,
-)
+try:
+    from src.database import (
+        inicializar_banco,
+        listar_titulares,
+        buscar_grupo_familiar,
+        criar_solicitacao,
+        listar_solicitacoes_titular,
+        listar_solicitacoes_pendentes,
+        listar_todas_solicitacoes,
+        obter_solicitacao,
+        aprovar_solicitacao,
+        rejeitar_solicitacao,
+        cancelar_aprovacao,
+        listar_solicitacoes_aprovadas,
+        listar_todos_membros,
+        atualizar_valor_membro,
+        reajustar_valores_lote,
+        contar_solicitacoes_por_status,
+        contar_aprovadas_mes_atual,
+        obter_tabela_faixas,
+        atualizar_tabela_faixa,
+        reajustar_tabela_faixas_percentual,
+        recalcular_mensalidades_membros,
+        verificar_migracoes_grupo,
+        listar_todas_migracoes,
+        calcular_idade,
+        determinar_faixa_etaria,
+        adicionar_titular,
+        adicionar_dependente,
+        excluir_membro,
+        excluir_grupo_familiar,
+        obter_config_uniodonto,
+        atualizar_valor_uniodonto,
+        reajustar_valor_uniodonto_percentual,
+        obter_uniodonto_titular,
+        listar_todos_uniodonto,
+        salvar_uniodonto_titular,
+        remover_uniodonto_titular,
+    )
+    from src.auth import (
+        login_associado,
+        logout_associado,
+        is_associado_logado,
+        get_associado_logado,
+        login_admin,
+        logout_admin,
+        is_admin_logado,
+    )
+    from src.email_service import (
+        notificar_administrador_nova_solicitacao,
+        notificar_administrador_migracao_faixa,
+        verificar_status_smtp,
+        enviar_email_teste,
+    )
+    from src.pdf_generator import gerar_pdf_declaracao
+    from src.utils import (
+        formatar_cpf,
+        formatar_moeda,
+        validar_cpf,
+        limpar_cpf,
+        mes_por_extenso,
+        MESES_OPCOES,
+    )
+except ImportError:
+    from database import (
+        inicializar_banco,
+        listar_titulares,
+        buscar_grupo_familiar,
+        criar_solicitacao,
+        listar_solicitacoes_titular,
+        listar_solicitacoes_pendentes,
+        listar_todas_solicitacoes,
+        obter_solicitacao,
+        aprovar_solicitacao,
+        rejeitar_solicitacao,
+        cancelar_aprovacao,
+        listar_solicitacoes_aprovadas,
+        listar_todos_membros,
+        atualizar_valor_membro,
+        reajustar_valores_lote,
+        contar_solicitacoes_por_status,
+        contar_aprovadas_mes_atual,
+        obter_tabela_faixas,
+        atualizar_tabela_faixa,
+        reajustar_tabela_faixas_percentual,
+        recalcular_mensalidades_membros,
+        verificar_migracoes_grupo,
+        listar_todas_migracoes,
+        calcular_idade,
+        determinar_faixa_etaria,
+        adicionar_titular,
+        adicionar_dependente,
+        excluir_membro,
+        excluir_grupo_familiar,
+        obter_config_uniodonto,
+        atualizar_valor_uniodonto,
+        reajustar_valor_uniodonto_percentual,
+        obter_uniodonto_titular,
+        listar_todos_uniodonto,
+        salvar_uniodonto_titular,
+        remover_uniodonto_titular,
+    )
+    from auth import (
+        login_associado,
+        logout_associado,
+        is_associado_logado,
+        get_associado_logado,
+        login_admin,
+        logout_admin,
+        is_admin_logado,
+    )
+    from email_service import (
+        notificar_administrador_nova_solicitacao,
+        notificar_administrador_migracao_faixa,
+        verificar_status_smtp,
+        enviar_email_teste,
+    )
+    from pdf_generator import gerar_pdf_declaracao
+    from utils import (
+        formatar_cpf,
+        formatar_moeda,
+        validar_cpf,
+        limpar_cpf,
+        mes_por_extenso,
+        MESES_OPCOES,
+    )
 
 # ─── INICIALIZAÇÃO ─────────────────────────────────────────────────────────────
 

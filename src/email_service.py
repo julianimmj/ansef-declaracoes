@@ -4,6 +4,8 @@ Dispara notificação ao administrador quando uma nova solicitação é submetid
 Tratamento resiliente: não interrompe a aplicação em caso de falha.
 Inclui ferramentas de diagnóstico e teste para o painel administrativo.
 """
+from __future__ import annotations
+
 import os
 import smtplib
 import logging
@@ -13,7 +15,10 @@ from datetime import datetime
 
 import streamlit as st
 
-from src.utils import formatar_cpf, formatar_moeda, mes_por_extenso
+try:
+    from src.utils import formatar_cpf, formatar_moeda, mes_por_extenso
+except ImportError:
+    from utils import formatar_cpf, formatar_moeda, mes_por_extenso
 
 logger = logging.getLogger(__name__)
 

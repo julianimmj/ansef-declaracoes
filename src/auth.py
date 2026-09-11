@@ -8,7 +8,10 @@ from __future__ import annotations
 from typing import Optional
 from datetime import date
 import streamlit as st
-from src.database import validar_nascimento_titular
+try:
+    from src.database import validar_nascimento_titular
+except ImportError:
+    from database import validar_nascimento_titular
 
 
 def autenticar_associado(titular_nome: str, data_nascimento: date) -> bool:

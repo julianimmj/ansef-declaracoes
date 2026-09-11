@@ -569,7 +569,10 @@ def criar_solicitacao(titular_nome: str, titular_cpf: str,
               mes_ref, ano_ref, data_pagamento, valor_total))
         sol_id = cursor.lastrowid
 
-        from src.utils import gerar_codigo_validacao
+        try:
+            from src.utils import gerar_codigo_validacao
+        except ImportError:
+            from utils import gerar_codigo_validacao
         codigo = gerar_codigo_validacao(sol_id, ano_ref)
         conn.execute("""
             UPDATE solicitacoes SET codigo_validacao = ? WHERE id = ?
