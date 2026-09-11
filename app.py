@@ -50,6 +50,13 @@ from src.database import (
     adicionar_dependente,
     excluir_membro,
     excluir_grupo_familiar,
+    obter_config_uniodonto,
+    atualizar_valor_uniodonto,
+    reajustar_valor_uniodonto_percentual,
+    obter_uniodonto_titular,
+    listar_todos_uniodonto,
+    salvar_uniodonto_titular,
+    remover_uniodonto_titular,
 )
 from src.auth import (
     login_associado,
@@ -386,6 +393,22 @@ if modulo == "🏠 Área do Associado":
             </div>
             """, unsafe_allow_html=True)
 
+        # Dados bancários ANSEF Campinas para pagamento / Pix
+        with st.expander("🏦 Dados Bancários para Transferência / PIX (Conta PJ ANSEF Campinas)", expanded=True):
+            col_b1, col_b2 = st.columns([2, 1.5])
+            with col_b1:
+                st.markdown("""
+                - **Favorecido:** Associação S P F E C Sp
+                - **Banco:** 341 - Itaú Unibanco S.A.
+                - **Agência:** 1370
+                - **Conta Corrente:** 46177-2
+                - **CNPJ:** `19.010.380/0001-73`
+                """)
+            with col_b2:
+                st.markdown("**🔑 Chave PIX (CNPJ):**")
+                st.code("19.010.380/0001-73", language="text")
+                st.caption("Utilize a chave Pix acima para realizar o pagamento mensal à ANSEF Campinas.")
+
         # Resumo dos integrantes e valores vigentes
         with st.expander("👥 Integrantes do Grupo e Valores Vigentes por Faixa Etária", expanded=False):
             dados_tabela = []
@@ -407,6 +430,19 @@ if modulo == "🏠 Área do Associado":
                     "Situação Faixa": "⚠️ Reajustada" if m.get("migrou_faixa") else "Regular",
                 })
             st.dataframe(pd.DataFrame(dados_tabela), use_container_width=True, hide_index=True)
+
+            # Detalhamento do Plano Odontológico Uniodonto
+            uniodonto_grupo = obter_uniodonto_titular(titular_logado)
+            st.markdown("---")
+            st.markdown("##### 🦷 Plano Odontológico (Uniodonto Campinas)")
+            if uniodonto_grupo:
+                col_u1, col_u2, col_u3 = st.columns(3)
+                col_u1.metric("Status Odontológico", "Ativo ✅")
+                col_u2.metric("Vidas Cobertas", f"{uniodonto_grupo['vidas']} vida(s)")
+                col_u3.metric("Mensalidade Odonto", formatar_moeda(uniodonto_grupo["valor_total"]), help=f"R$ {uniodonto_grupo['valor_por_vida']:.2f} por vida")
+                st.caption("ℹ️ Plano odontológico contratado junto à Uniodonto Campinas e faturado mensalmente através da ANSEF Campinas.")
+            else:
+                st.info("🦷 **Plano Odontológico (Uniodonto Campinas):** Não contratado para este grupo familiar.")
 
         tab_nova, tab_historico = st.tabs(["📝 Nova Solicitação", "📄 Histórico e Downloads"])
 
@@ -499,6 +535,48 @@ if modulo == "🏠 Área do Associado":
                 format="%.2f",
                 help="Calculado automaticamente pela soma dos selecionados. Ajuste manualmente se necessário.",
             )
+
+            # Campo do Plano Odontológico (Uniodonto Campinas) e Montante de Transferência
+            uniodonto_tit = obter_uniodonto_titular(titular_logado)
+            if uniodonto_tit:
+                vidas_odonto = uniodonto_tit["vidas"]
+                valor_odonto = uniodonto_tit["valor_total"]
+                valor_por_vida = uniodonto_tit["valor_por_vida"]
+                st.text_input(
+                    "🦷 Plano Odontológico (Uniodonto Campinas)",
+                    value=f"{vidas_odonto} vida(s) coberta(s) — {formatar_moeda(valor_odonto)} ({formatar_moeda(valor_por_vida)}/vida)",
+                    disabled=True,
+                    help="Plano odontológico Uniodonto contratado junto à ANSEF Campinas.",
+                )
+
+                montante_transferencia = valor_total + valor_odonto
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 100%); color: #FFFFFF; border-radius: 10px; padding: 14px 18px; margin: 12px 0 16px 0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9;">💳 Montante Total para Transferência / PIX (ANSEF Campinas)</span>
+                            <div style="font-size: 1.55rem; font-weight: 700; margin-top: 2px;">{formatar_moeda(montante_transferencia)}</div>
+                            <div style="font-size: 0.84rem; opacity: 0.9; margin-top: 2px;">
+                                UNIMED Saúde: <strong>{formatar_moeda(valor_total)}</strong> + UNIODONTO ({vidas_odonto} vidas): <strong>{formatar_moeda(valor_odonto)}</strong>
+                            </div>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.18); border-radius: 8px; padding: 6px 12px; text-align: right;">
+                            <small style="display: block; font-size: 0.72rem; opacity: 0.9;">Chave Pix (CNPJ):</small>
+                            <span style="color: #FFFFFF; font-weight: 700; font-size: 0.9rem;">19.010.380/0001-73</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.25); font-size: 0.80rem; opacity: 0.95;">
+                        ℹ️ <strong>Lembrete importante:</strong> O valor da UNIODONTO é somado exclusivamente para facilitar sua transferência para a ANSEF. A <strong>Declaração de Pagamento da UNIMED</strong> que será emitida conterá <strong>estritamente o valor de saúde ({formatar_moeda(valor_total)})</strong>.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.text_input(
+                    "🦷 Plano Odontológico (Uniodonto Campinas)",
+                    value="Nenhuma vida vinculada neste grupo (R$ 0,00)",
+                    disabled=True,
+                    help="Este grupo familiar não possui plano odontológico Uniodonto.",
+                )
 
             st.markdown("")
 
@@ -715,11 +793,12 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     ])
                     st.dataframe(df_migs, use_container_width=True, hide_index=True)
 
-        tab_pend, tab_aprovadas, tab_reajuste, tab_gestao_grupos, tab_relatorio, tab_config_email = st.tabs([
+        tab_pend, tab_aprovadas, tab_reajuste, tab_gestao_grupos, tab_uniodonto, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "📄 Declarações Aprovadas",
             "💰 Tabela de Preços e Reajustes",
             "👥 Gestão de Integrantes & Grupos",
+            "🦷 Plano Odontológico (Uniodonto)",
             "📊 Histórico Geral",
             "⚙️ Configuração de E-mail",
         ])
@@ -1353,6 +1432,147 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                     else:
                                         st.caption("(Titular)")
                                 st.markdown("<div style='border-bottom: 1px dashed #eee; margin: 4px 0;'></div>", unsafe_allow_html=True)
+
+        # ── ABA: PLANO ODONTOLÓGICO (UNIODONTO) ──────────────────────────────
+        with tab_uniodonto:
+            st.markdown("#### 🦷 Gestão do Plano Odontológico (Uniodonto Campinas)")
+            st.caption(
+                "Gerencie os titulares que possuem plano odontológico e o valor mensal por vida. "
+                "O plano não possui escalonamento por faixa etária e **não consta** nas declarações de saúde da UNIMED."
+            )
+
+            cfg_uniodonto = obter_config_uniodonto()
+            valor_vida_atual = cfg_uniodonto["valor_por_vida"]
+            lista_uniodonto = listar_todos_uniodonto()
+
+            total_titulares_u = len(lista_uniodonto)
+            total_vidas_u = sum(item["vidas"] for item in lista_uniodonto)
+            total_mensal_u = sum(item["valor_total"] for item in lista_uniodonto)
+
+            col_mu1, col_mu2, col_mu3, col_mu4 = st.columns(4)
+            col_mu1.metric("👥 Titulares no Plano", total_titulares_u)
+            col_mu2.metric("🦷 Total de Vidas Cobertas", total_vidas_u)
+            col_mu3.metric("💵 Valor Vigente por Vida", formatar_moeda(valor_vida_atual))
+            col_mu4.metric("💰 Faturamento Mensal", formatar_moeda(total_mensal_u))
+
+            st.divider()
+
+            # BLOCO 1: ALTERAÇÃO DE PREÇO POR VIDA
+            st.markdown("##### 💵 Configuração de Preço por Vida")
+            st.caption("Altere o valor digitando o novo valor ou informando uma porcentagem de correção. O novo valor é mantido no sistema até nova correção.")
+
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                with st.form("form_alterar_preco_uniodonto"):
+                    st.markdown("**1. Digitar Novo Valor Unitário (R$)**")
+                    novo_preco_u = st.number_input(
+                        "Novo valor por vida (R$):",
+                        value=float(valor_vida_atual),
+                        min_value=0.01,
+                        step=1.00,
+                        format="%.2f",
+                        key="input_novo_preco_uniodonto",
+                    )
+                    btn_salvar_preco = st.form_submit_button("💾 Salvar Novo Preço por Vida", type="primary", use_container_width=True)
+                    if btn_salvar_preco:
+                        atualizar_valor_uniodonto(novo_preco_u)
+                        st.success(f"✅ Valor por vida da Uniodonto atualizado para {formatar_moeda(novo_preco_u)}!")
+                        st.rerun()
+
+            with col_p2:
+                with st.form("form_reajuste_perc_uniodonto"):
+                    st.markdown("**2. Reajuste por Porcentagem (%)**")
+                    perc_u = st.number_input(
+                        "Porcentagem de correção (%):",
+                        value=0.0,
+                        step=0.5,
+                        format="%.2f",
+                        help="Ex: 10.00 para reajuste de 10%, ou -5.00 para redução de 5%",
+                        key="input_perc_uniodonto",
+                    )
+                    btn_reajuste_perc = st.form_submit_button("📈 Aplicar Correção Percentual", use_container_width=True)
+                    if btn_reajuste_perc:
+                        if perc_u != 0.0:
+                            novo_val = reajustar_valor_uniodonto_percentual(perc_u)
+                            st.success(f"✅ Reajuste de {perc_u:+.2f}% aplicado! Novo valor por vida: {formatar_moeda(novo_val)}.")
+                            st.rerun()
+                        else:
+                            st.info("Informe um percentual diferente de 0%.")
+
+            st.divider()
+
+            # BLOCO 2: INCLUIR OU ATUALIZAR TITULAR
+            st.markdown("##### ➕ Incluir ou Atualizar Titular no Uniodonto")
+            st.caption("Selecione o titular e indique a quantidade total de vidas cobertas no plano odontológico.")
+
+            titulares_cadastrados = [t["titular_nome"] for t in listar_titulares()]
+            titulares_cadastrados = sorted(list(set(titulares_cadastrados)))
+
+            with st.form("form_vincular_uniodonto"):
+                col_v1, col_v2, col_v3 = st.columns([2.5, 1, 1.5])
+                with col_v1:
+                    titular_u_sel = st.selectbox(
+                        "Titular do Grupo Familiar:",
+                        options=titulares_cadastrados,
+                        index=None,
+                        placeholder="Selecione o titular...",
+                    )
+                with col_v2:
+                    vidas_u_input = st.number_input(
+                        "Total de Vidas:",
+                        min_value=1,
+                        max_value=30,
+                        value=1,
+                        step=1,
+                    )
+                with col_v3:
+                    valor_prev = vidas_u_input * valor_vida_atual
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    st.markdown(f"**Total Mensal:** `{formatar_moeda(valor_prev)}`")
+
+                btn_vincular = st.form_submit_button("💾 Salvar Vínculo no Uniodonto", type="primary", use_container_width=True)
+                if btn_vincular:
+                    if not titular_u_sel:
+                        st.error("Selecione um titular.")
+                    else:
+                        sucesso_u, msg_u = salvar_uniodonto_titular(titular_u_sel, int(vidas_u_input))
+                        if sucesso_u:
+                            st.success(msg_u)
+                            st.rerun()
+                        else:
+                            st.error(msg_u)
+
+            st.divider()
+
+            # BLOCO 3: LISTA DE TITULARES VINCULADOS
+            st.markdown(f"##### 📋 Titulares com Plano Uniodonto Ativo ({len(lista_uniodonto)})")
+
+            if not lista_uniodonto:
+                st.info("Nenhum titular cadastrado no plano Uniodonto até o momento.")
+            else:
+                for item_u in lista_uniodonto:
+                    with st.container():
+                        col_u_nome, col_u_vidas, col_u_total, col_u_acoes = st.columns([3, 1.2, 1.5, 1.2])
+                        with col_u_nome:
+                            st.markdown(f"**{item_u['titular_nome']}**")
+                            st.caption(f"Atualizado em: {item_u['data_atualizacao'][:10] if item_u.get('data_atualizacao') else 'N/A'}")
+                        with col_u_vidas:
+                            st.markdown(f"🦷 **{item_u['vidas']} vida(s)**")
+                            st.caption(f"{formatar_moeda(item_u['valor_por_vida'])}/vida")
+                        with col_u_total:
+                            st.markdown(f"**{formatar_moeda(item_u['valor_total'])}** /mês")
+                        with col_u_acoes:
+                            with st.popover("🗑️ Excluir"):
+                                st.write(f"Remover **{item_u['titular_nome']}** do Uniodonto?")
+                                if st.button("Confirmar Exclusão", key=f"del_u_{item_u['id']}", type="primary", use_container_width=True):
+                                    sucesso_del, msg_del = remover_uniodonto_titular(item_u["titular_nome"])
+                                    if sucesso_del:
+                                        st.success(msg_del)
+                                        st.rerun()
+                                    else:
+                                        st.error(msg_del)
+                        st.markdown("<div style='border-bottom: 1px dashed #E2E8F0; margin: 4px 0 8px 0;'></div>", unsafe_allow_html=True)
+
 
         # ── ABA 5: HISTÓRICO GERAL ──────────────────────────────────────────
         with tab_relatorio:

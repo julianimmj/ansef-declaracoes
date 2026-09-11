@@ -102,6 +102,19 @@ def inicializar_banco():
                 valor_coletivo REAL NOT NULL,
                 ordem INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS config_uniodonto (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                valor_por_vida REAL NOT NULL DEFAULT 35.00,
+                data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS uniodonto_titulares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titular_nome TEXT UNIQUE NOT NULL,
+                vidas INTEGER NOT NULL DEFAULT 1,
+                data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
 
         # Inicializa a tabela de faixas etárias caso vazia
@@ -113,6 +126,26 @@ def inicializar_banco():
                     (faixa_etaria, idade_min, idade_max, valor_privativo, valor_coletivo, ordem)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, item)
+
+        # Inicializa o valor por vida da Uniodonto caso tabela vazia
+        count_cfg_u = conn.execute("SELECT COUNT(*) FROM config_uniodonto").fetchone()[0]
+        if count_cfg_u == 0:
+            conn.execute("INSERT INTO config_uniodonto (valor_por_vida) VALUES (35.00)")
+
+        # Inicializa os titulares com Uniodonto caso tabela vazia
+        count_u_tit = conn.execute("SELECT COUNT(*) FROM uniodonto_titulares").fetchone()[0]
+        if count_u_tit == 0:
+            titulares_iniciais_uniodonto = [
+                ("Carlos Sergio Praciano P.", 2),
+                ("Francisco Sandin Martins", 1),
+                ("Marcio Carlos Rosa", 5),
+                ("José Luis Cordeiro Marcheori", 2),
+            ]
+            for t_nome, vidas in titulares_iniciais_uniodonto:
+                conn.execute(
+                    "INSERT OR IGNORE INTO uniodonto_titulares (titular_nome, vidas) VALUES (?, ?)",
+                    (t_nome, vidas)
+                )
 
         # Verifica se já existem membros cadastrados
         count_membros = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
@@ -1007,8 +1040,136 @@ def excluir_grupo_familiar(titular_nome: str) -> tuple[bool, str, int]:
         conn.execute("DELETE FROM membros WHERE titular_nome = ?", (titular_limpo,))
         for n in nomes:
             conn.execute("DELETE FROM config_valores WHERE beneficiario_nome = ?", (n,))
+        conn.execute("DELETE FROM uniodonto_titulares WHERE LOWER(titular_nome) = LOWER(?)", (titular_limpo,))
 
         _sincronizar_csv_com_banco(conn)
 
     return True, f"Grupo familiar de '{titular_limpo}' ({total} integrante(s)) excluído com sucesso.", total
+
+
+# ─── GESTÃO DO PLANO ODONTOLÓGICO (UNIODONTO) ───────────────────────────────
+
+def obter_config_uniodonto() -> dict:
+    """Retorna a configuração vigente do plano Uniodonto (valor por vida)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT valor_por_vida, data_atualizacao FROM config_uniodonto ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            return {
+                "valor_por_vida": float(row["valor_por_vida"]),
+                "data_atualizacao": str(row["data_atualizacao"]),
+            }
+        return {"valor_por_vida": 35.00, "data_atualizacao": ""}
+
+
+def atualizar_valor_uniodonto(novo_valor: float) -> None:
+    """Atualiza o valor por vida do plano Uniodonto."""
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao)
+            VALUES (?, ?)
+        """, (round(float(novo_valor), 2), datetime.now().isoformat()))
+
+
+def reajustar_valor_uniodonto_percentual(percentual: float) -> float:
+    """Aplica reajuste percentual sobre o valor vigente da Uniodonto e retorna o novo valor."""
+    atual = obter_config_uniodonto()["valor_por_vida"]
+    novo_valor = round(atual * (1 + percentual / 100), 2)
+    atualizar_valor_uniodonto(novo_valor)
+    return novo_valor
+
+
+def obter_uniodonto_titular(titular_nome: str) -> dict | None:
+    """
+    Retorna os dados de Uniodonto para o titular informado.
+    Retorna None se o titular não possuir o plano.
+    """
+    cfg = obter_config_uniodonto()
+    valor_por_vida = cfg["valor_por_vida"]
+    titular_limpo = titular_nome.strip()
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, titular_nome, vidas, data_atualizacao FROM uniodonto_titulares WHERE LOWER(titular_nome) = LOWER(?)",
+            (titular_limpo,)
+        ).fetchone()
+        if not row:
+            return None
+        vidas = int(row["vidas"])
+        return {
+            "id": row["id"],
+            "titular_nome": row["titular_nome"],
+            "vidas": vidas,
+            "valor_por_vida": valor_por_vida,
+            "valor_total": round(vidas * valor_por_vida, 2),
+            "data_atualizacao": str(row["data_atualizacao"]),
+        }
+
+
+def listar_todos_uniodonto() -> list[dict]:
+    """Retorna todos os titulares com plano Uniodonto ativo com seus respectivos valores calculados."""
+    cfg = obter_config_uniodonto()
+    valor_por_vida = cfg["valor_por_vida"]
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, titular_nome, vidas, data_atualizacao FROM uniodonto_titulares ORDER BY titular_nome ASC"
+        ).fetchall()
+        resultado = []
+        for r in rows:
+            vidas = int(r["vidas"])
+            resultado.append({
+                "id": r["id"],
+                "titular_nome": r["titular_nome"],
+                "vidas": vidas,
+                "valor_por_vida": valor_por_vida,
+                "valor_total": round(vidas * valor_por_vida, 2),
+                "data_atualizacao": str(r["data_atualizacao"]),
+            })
+        return resultado
+
+
+def salvar_uniodonto_titular(titular_nome: str, vidas: int) -> tuple[bool, str]:
+    """Inclui ou atualiza o titular no plano Uniodonto com o número de vidas informadas."""
+    titular_limpo = titular_nome.strip()
+    if not titular_limpo:
+        return False, "Nome do titular é obrigatório."
+    if vidas <= 0:
+        return False, "O número de vidas cobertas deve ser de no mínimo 1."
+
+    cfg = obter_config_uniodonto()
+    valor_total = round(vidas * cfg["valor_por_vida"], 2)
+
+    with get_connection() as conn:
+        # Verifica se titular existe na base de membros
+        membro = conn.execute(
+            "SELECT titular_nome FROM membros WHERE LOWER(titular_nome) = LOWER(?) LIMIT 1",
+            (titular_limpo,)
+        ).fetchone()
+        nome_oficial = membro["titular_nome"] if membro else titular_limpo
+
+        conn.execute("""
+            INSERT INTO uniodonto_titulares (titular_nome, vidas, data_atualizacao)
+            VALUES (?, ?, ?)
+            ON CONFLICT(titular_nome) DO UPDATE SET
+                vidas = excluded.vidas,
+                data_atualizacao = excluded.data_atualizacao
+        """, (nome_oficial, vidas, datetime.now().isoformat()))
+
+    return True, f"Titular '{nome_oficial}' atualizado na Uniodonto com {vidas} vida(s) (Total: R$ {valor_total:.2f})."
+
+
+def remover_uniodonto_titular(titular_nome: str) -> tuple[bool, str]:
+    """Remove o titular do plano Uniodonto."""
+    titular_limpo = titular_nome.strip()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM uniodonto_titulares WHERE LOWER(titular_nome) = LOWER(?)",
+            (titular_limpo,)
+        )
+        if cursor.rowcount == 0:
+            return False, f"Titular '{titular_limpo}' não encontrado no cadastro da Uniodonto."
+    return True, f"Titular '{titular_limpo}' removido com sucesso do plano Uniodonto."
+
 
