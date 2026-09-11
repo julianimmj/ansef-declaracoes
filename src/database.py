@@ -78,6 +78,23 @@ def inicializar_banco():
         count = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
         if count == 0:
             _carregar_csv(conn)
+        else:
+            # Atualiza correções cadastrais em bases existentes
+            conn.execute("""
+                UPDATE membros
+                SET titular_nome = 'José Luis Cordeiro Marcheori'
+                WHERE titular_nome = 'José Luis Cordeiro Marceori'
+            """)
+            conn.execute("""
+                UPDATE membros
+                SET beneficiario_nome = 'José Luis Cordeiro Marcheori'
+                WHERE beneficiario_nome = 'José Luis Cordeiro Marceori'
+            """)
+            conn.execute("""
+                UPDATE solicitacoes
+                SET titular_nome = 'José Luis Cordeiro Marcheori'
+                WHERE titular_nome = 'José Luis Cordeiro Marceori'
+            """)
 
 
 def _carregar_csv(conn):
