@@ -296,6 +296,43 @@ def rejeitar_solicitacao(sol_id: int, observacoes: str) -> None:
         """, (datetime.now().isoformat(), observacoes, sol_id))
 
 
+def cancelar_aprovacao(sol_id: int, motivo: str = "") -> None:
+    """
+    Cancela/revoga uma declaração previamente aprovada pelo administrador.
+    Altera o status para 'CANCELADO', apaga o PDF gerado (para impedir downloads pelo titular),
+    e registra a data e motivo do cancelamento nas observações administrativas.
+    """
+    with get_connection() as conn:
+        obs_atual = conn.execute(
+            "SELECT observacoes_admin FROM solicitacoes WHERE id = ?", (sol_id,)
+        ).fetchone()
+        obs_anterior = obs_atual["observacoes_admin"] if obs_atual and obs_atual["observacoes_admin"] else ""
+
+        agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        novo_obs = f"[CANCELADO EM {agora_str}] {motivo.strip()}".strip()
+        if obs_anterior:
+            novo_obs = f"{obs_anterior} | {novo_obs}"
+
+        conn.execute("""
+            UPDATE solicitacoes
+            SET status = 'CANCELADO',
+                pdf_gerado = NULL,
+                observacoes_admin = ?
+            WHERE id = ?
+        """, (novo_obs, sol_id))
+
+
+def listar_solicitacoes_aprovadas() -> list[dict]:
+    """Retorna todas as declarações com status 'APROVADO', ordenadas pela mais recente."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT * FROM solicitacoes
+            WHERE status = 'APROVADO'
+            ORDER BY data_analise DESC, id DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
 def atualizar_solicitacao_campos(sol_id: int, **kwargs) -> None:
     """Atualiza campos arbitrários de uma solicitação."""
     if not kwargs:
@@ -361,7 +398,7 @@ def contar_solicitacoes_por_status() -> dict:
         rows = conn.execute("""
             SELECT status, COUNT(*) as total FROM solicitacoes GROUP BY status
         """).fetchall()
-        resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0}
+        resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
         for r in rows:
             resultado[r["status"]] = r["total"]
         return resultado

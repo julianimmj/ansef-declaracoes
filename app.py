@@ -22,6 +22,8 @@ from src.database import (
     obter_solicitacao,
     aprovar_solicitacao,
     rejeitar_solicitacao,
+    cancelar_aprovacao,
+    listar_solicitacoes_aprovadas,
     listar_todos_membros,
     atualizar_valor_membro,
     reajustar_valores_lote,
@@ -122,6 +124,17 @@ st.markdown("""
         font-size: 0.85rem;
         display: inline-block;
         margin-bottom: 6px;
+    }
+    .status-cancelado {
+        background: #F1F5F9;
+        color: #475569;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: inline-block;
+        margin-bottom: 6px;
+        border: 1px solid #CBD5E1;
     }
 
     /* Cartões de Métricas */
@@ -445,6 +458,8 @@ if modulo == "🏠 Área do Associado":
                         badge = '<span class="status-pendente">⏳ PENDENTE</span>'
                     elif status == "APROVADO":
                         badge = '<span class="status-aprovado">✅ APROVADO</span>'
+                    elif status == "CANCELADO":
+                        badge = '<span class="status-cancelado">🚫 CANCELADO PELA ADMINISTRAÇÃO</span>'
                     else:
                         badge = '<span class="status-rejeitado">❌ REJEITADO</span>'
 
@@ -477,6 +492,13 @@ if modulo == "🏠 Área do Associado":
                                 use_container_width=True,
                                 key=f"dl_pdf_assoc_{sol['id']}",
                             )
+                        elif status == "CANCELADO":
+                            st.warning(
+                                "⚠️ **Esta aprovação foi cancelada/revogada pela administração.** "
+                                "O documento não está mais disponível para download."
+                            )
+                            if sol.get("observacoes_admin"):
+                                st.info(f"**Observações da Administração:** {sol['observacoes_admin']}")
 
                         if status == "REJEITADO" and sol.get("observacoes_admin"):
                             st.error(f"**Motivo da recusa:** {sol['observacoes_admin']}")
@@ -519,17 +541,18 @@ elif modulo == "🔒 Área Restrita (Administração)":
         metricas = contar_solicitacoes_por_status()
         aprovadas_mes = contar_aprovadas_mes_atual()
 
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
         col_m1.metric("⏳ Pendentes", metricas.get("PENDENTE", 0))
-        col_m2.metric("✅ Aprovadas (Total)", metricas.get("APROVADO", 0))
-        col_m3.metric("📅 Aprovadas no Mês", aprovadas_mes)
-        col_m4.metric("📊 Total Emitidas",
-                       sum(metricas.values()))
+        col_m2.metric("✅ Aprovadas Ativas", metricas.get("APROVADO", 0))
+        col_m3.metric("🚫 Canceladas", metricas.get("CANCELADO", 0))
+        col_m4.metric("📅 Aprovadas no Mês", aprovadas_mes)
+        col_m5.metric("📊 Total Geral", sum(metricas.values()))
 
         st.divider()
 
-        tab_pend, tab_reajuste, tab_relatorio, tab_config_email = st.tabs([
+        tab_pend, tab_aprovadas, tab_reajuste, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
+            "📄 Declarações Aprovadas",
             "💰 Reajuste de Valores",
             "📊 Histórico Geral",
             "⚙️ Configuração de E-mail",
@@ -718,6 +741,95 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                     st.warning(f"Solicitação #{sol['id']} rejeitada.")
                                     st.rerun()
 
+        # ── ABA 2: DECLARAÇÕES APROVADAS & GESTÃO ───────────────────────────
+        with tab_aprovadas:
+            st.markdown("#### 📄 Declarações Aprovadas & Gestão")
+            st.caption(
+                "Consulte todas as declarações emitidas pela administração. "
+                "Você pode baixar e imprimir o PDF oficial a qualquer momento, "
+                "ou cancelar/revogar a aprovação caso entenda necessário."
+            )
+
+            aprovadas = listar_solicitacoes_aprovadas()
+
+            if not aprovadas:
+                st.info("Nenhuma declaração aprovada no momento.")
+            else:
+                st.markdown(f"**{len(aprovadas)}** declaração(ões) aprovada(s) ativas:")
+
+                # Busca rápida por titular
+                busca_aprov = st.text_input(
+                    "🔍 Filtrar por nome do titular:",
+                    placeholder="Digite para filtrar...",
+                    key="busca_aprovadas_input",
+                )
+                if busca_aprov:
+                    aprovadas = [a for a in aprovadas if busca_aprov.lower() in a["titular_nome"].lower()]
+
+                for sol_ap in aprovadas:
+                    mes_ap_ext = mes_por_extenso(sol_ap["mes_referencia"]).capitalize()
+                    data_an_str = sol_ap["data_analise"][:10] if sol_ap.get("data_analise") else ""
+
+                    with st.expander(
+                        f"#{sol_ap['id']} — {sol_ap['titular_nome']} — {mes_ap_ext}/{sol_ap['ano_referencia']} — {formatar_moeda(sol_ap['valor_total'])}",
+                        expanded=False,
+                    ):
+                        col_ap1, col_ap2 = st.columns(2)
+                        with col_ap1:
+                            st.markdown(f"**Titular:** {sol_ap['titular_nome']}")
+                            st.markdown(f"**CPF:** {formatar_cpf(sol_ap['titular_cpf'])}")
+                            st.markdown(f"**Referência:** {mes_ap_ext} de {sol_ap['ano_referencia']}")
+                        with col_ap2:
+                            st.markdown(f"**Data de Quitação:** {sol_ap['data_pagamento']}")
+                            st.markdown(f"**Valor Total:** {formatar_moeda(sol_ap['valor_total'])}")
+                            st.markdown(f"**Código de Autenticidade:** `{sol_ap.get('codigo_validacao', 'N/A')}`")
+
+                        # Dependentes
+                        deps_ap = json.loads(sol_ap.get("dependentes_incluidos", "[]"))
+                        if deps_ap:
+                            st.markdown("##### 👥 Beneficiários Cobertos:")
+                            for d in deps_ap:
+                                st.write(f"- **{d.get('nome')}** ({d.get('parentesco', 'Titular')}) — {formatar_moeda(d.get('valor', 0))}")
+
+                        st.markdown("---")
+                        col_print, col_cancel = st.columns([1.5, 2])
+
+                        with col_print:
+                            if sol_ap.get("pdf_gerado"):
+                                st.download_button(
+                                    label="🖨️ Baixar / Imprimir PDF",
+                                    data=sol_ap["pdf_gerado"],
+                                    file_name=f"Declaracao_ANSEF_{sol_ap['titular_nome']}_{mes_ap_ext}_{sol_ap['ano_referencia']}.pdf",
+                                    mime="application/pdf",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key=f"adm_dl_ap_{sol_ap['id']}",
+                                )
+                            else:
+                                st.caption("PDF não encontrado no banco.")
+
+                        with col_cancel:
+                            with st.popover("🚫 Cancelar Aprovação", use_container_width=True):
+                                st.markdown("##### ⚠️ Revogar Declaração")
+                                st.warning(
+                                    "Ao cancelar esta aprovação, o associado **não terá mais acesso** "
+                                    "a este documento no portal de declarações."
+                                )
+                                motivo_canc = st.text_input(
+                                    "Motivo do cancelamento (opcional):",
+                                    placeholder="Ex: Erro no valor, duplicidade...",
+                                    key=f"motivo_canc_{sol_ap['id']}",
+                                )
+                                if st.button(
+                                    "Confirmar Cancelamento",
+                                    type="primary",
+                                    key=f"btn_canc_{sol_ap['id']}",
+                                    use_container_width=True,
+                                ):
+                                    cancelar_aprovacao(sol_ap["id"], motivo_canc)
+                                    st.success(f"Declaração #{sol_ap['id']} cancelada com sucesso!")
+                                    st.rerun()
+
         # ── ABA 2: REAJUSTE DE VALORES ──────────────────────────────────────
         with tab_reajuste:
             st.markdown("#### 💰 Tabela de Mensalidades e Reajustes")
@@ -814,8 +926,8 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 with col_f1:
                     filtro_status = st.multiselect(
                         "Filtrar por status:",
-                        ["PENDENTE", "APROVADO", "REJEITADO"],
-                        default=["PENDENTE", "APROVADO", "REJEITADO"],
+                        ["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
+                        default=["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
                     )
                 with col_f2:
                     filtro_titular = st.text_input(
