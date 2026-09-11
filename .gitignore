@@ -1,0 +1,26 @@
+# Secrets (contém senhas)
+.streamlit/secrets.toml
+
+# Banco de dados local
+data/ansef_database.db
+
+# Caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
