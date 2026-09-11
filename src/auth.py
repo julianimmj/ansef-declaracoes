@@ -3,8 +3,11 @@ Módulo de autenticação e validação de acesso.
 - Associados: validação por data de nascimento do titular.
 - Administrador: validação por senha com fallback para secrets.toml.
 """
-import streamlit as st
+from __future__ import annotations
+
+from typing import Optional
 from datetime import date
+import streamlit as st
 from src.database import validar_nascimento_titular
 
 

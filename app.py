@@ -2,8 +2,17 @@
 ANSEF/CAS — Sistema de Declarações de Pagamento
 Ponto de entrada da aplicação Streamlit.
 """
-import json
+from __future__ import annotations
+
+import sys
 import os
+
+# Garante que o diretório raiz da aplicação esteja sempre em sys.path (indispensável no Streamlit Cloud)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+import json
 import io
 import base64
 from datetime import date, datetime

@@ -3,11 +3,14 @@ Camada de persistência SQLite para o sistema ANSEF/CAS.
 Gerencia membros, configuração de valores reajustados, solicitações de declaração
 e tabela oficial de faixas etárias e preços (Privativo e Coletivo).
 """
+from __future__ import annotations
+
 import sqlite3
 import json
 import os
 import csv
 import logging
+from typing import Optional, Union, List, Dict, Any
 from datetime import datetime, date
 from contextlib import contextmanager
 

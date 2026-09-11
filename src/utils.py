@@ -1,7 +1,10 @@
 """
 Utilitários de formatação: CPF, moeda BRL, datas por extenso, valor por extenso.
 """
+from __future__ import annotations
+
 import re
+from typing import Optional
 from datetime import date, datetime
 
 # Meses por extenso em português
