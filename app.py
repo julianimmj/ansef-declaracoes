@@ -37,7 +37,11 @@ from src.auth import (
     logout_admin,
     is_admin_logado,
 )
-from src.email_service import notificar_administrador_nova_solicitacao
+from src.email_service import (
+    notificar_administrador_nova_solicitacao,
+    verificar_status_smtp,
+    enviar_email_teste,
+)
 from src.pdf_generator import gerar_pdf_declaracao
 from src.utils import (
     formatar_cpf,
@@ -54,66 +58,117 @@ st.set_page_config(
     page_title="ANSEF/CAS - Declarações de Pagamento",
     page_icon="🏛️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 # Inicializa o banco de dados na primeira execução
 inicializar_banco()
 
-# ─── CSS CUSTOM ─────────────────────────────────────────────────────────────────
+# ─── CSS CUSTOM (RESPONSIVO PARA CELULAR & DESKTOP) ──────────────────────────────
 
 st.markdown("""
 <style>
+    /* Tipografia institucional fluida e adaptável */
     .main-header {
         text-align: center;
         padding: 10px 0 5px 0;
     }
     .main-header h2 {
         color: #1B3A6B;
-        font-size: 1.3rem;
+        font-size: clamp(1.05rem, 3.8vw, 1.35rem);
         margin: 0;
         font-weight: 700;
+        line-height: 1.35;
     }
     .main-header h3 {
         color: #1B3A6B;
-        font-size: 1.1rem;
-        margin: 0;
+        font-size: clamp(0.95rem, 3vw, 1.15rem);
+        margin: 4px 0 0 0;
         font-weight: 600;
     }
     .main-header p {
-        color: #666;
-        font-size: 0.85rem;
-        margin: 2px 0 0 0;
+        color: #555;
+        font-size: clamp(0.8rem, 2.4vw, 0.9rem);
+        margin: 4px 0 0 0;
     }
+
+    /* Badges de Status */
     .status-pendente {
         background: #FFF3CD;
         color: #856404;
-        padding: 3px 10px;
+        padding: 4px 12px;
         border-radius: 12px;
         font-weight: 600;
         font-size: 0.85rem;
+        display: inline-block;
+        margin-bottom: 6px;
     }
     .status-aprovado {
         background: #D4EDDA;
         color: #155724;
-        padding: 3px 10px;
+        padding: 4px 12px;
         border-radius: 12px;
         font-weight: 600;
         font-size: 0.85rem;
+        display: inline-block;
+        margin-bottom: 6px;
     }
     .status-rejeitado {
         background: #F8D7DA;
         color: #721C24;
-        padding: 3px 10px;
+        padding: 4px 12px;
         border-radius: 12px;
         font-weight: 600;
         font-size: 0.85rem;
+        display: inline-block;
+        margin-bottom: 6px;
     }
+
+    /* Cartões de Métricas */
     div[data-testid="stMetric"] {
         background: #f0f4fa;
         border-radius: 10px;
         padding: 12px 16px;
         border-left: 4px solid #1B3A6B;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    /* Otimizações para Dispositivos Móveis (Smartphones <= 768px) */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+        }
+
+        /* Alvos de toque com altura mínima para facilitar uso com dedos */
+        .stButton button, .stDownloadButton button {
+            min-height: 46px !important;
+            font-size: 0.98rem !important;
+            border-radius: 8px !important;
+        }
+
+        /* Inputs e seletores confortáveis para toque no celular */
+        .stTextInput input, .stNumberInput input, .stDateInput input, .stSelectbox select {
+            min-height: 42px !important;
+            font-size: 0.95rem !important;
+        }
+
+        /* Métricas do painel administrativo em grade 2x2 no celular */
+        div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {
+            flex-wrap: wrap !important;
+            gap: 10px !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div {
+            flex: 1 1 calc(50% - 10px) !important;
+            min-width: 130px !important;
+        }
+
+        /* Expander com margem confortável */
+        div[data-testid="stExpander"] {
+            margin-bottom: 10px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -270,22 +325,16 @@ if modulo == "🏠 Área do Associado":
             valor_soma = 0.0
 
             for i, membro in enumerate(grupo):
-                col_check, col_nome, col_parent, col_valor = st.columns([0.5, 3, 2, 2])
+                col_membro, col_valor = st.columns([3, 1.8])
 
                 m_id = membro.get("id", i)
-                with col_check:
+                parentesco = membro.get("grau_parentesco", "Titular")
+                with col_membro:
                     checked = st.checkbox(
-                        "Incluir",
+                        f"**{membro['beneficiario_nome']}** ({parentesco})",
                         value=True,
                         key=f"check_m_{m_id}_{i}",
-                        label_visibility="collapsed",
                     )
-
-                with col_nome:
-                    st.markdown(f"**{membro['beneficiario_nome']}**")
-
-                with col_parent:
-                    st.caption(membro.get("grau_parentesco", ""))
 
                 with col_valor:
                     valor_base = membro.get("valor_vigente", 0.0) or membro.get("valor_mensalidade", 0.0) or 0.0
@@ -297,12 +346,13 @@ if modulo == "🏠 Área do Associado":
                         format="%.2f",
                         key=f"valor_m_{m_id}_{i}",
                         label_visibility="collapsed",
+                        help=f"Valor de {membro['beneficiario_nome']}",
                     )
 
                 if checked:
                     selecionados.append({
                         "nome": membro["beneficiario_nome"],
-                        "parentesco": membro.get("grau_parentesco", ""),
+                        "parentesco": parentesco,
                         "valor": valor_edit,
                     })
                     valor_soma += valor_edit
@@ -359,7 +409,7 @@ if modulo == "🏠 Área do Associado":
                         )
 
                         # Tenta enviar e-mail (não bloqueia se falhar)
-                        notificar_administrador_nova_solicitacao(
+                        sucesso_email, msg_email = notificar_administrador_nova_solicitacao(
                             titular_nome=titular_logado,
                             titular_cpf=cpf_limpo,
                             mes_referencia=mes_num,
@@ -376,6 +426,8 @@ if modulo == "🏠 Área do Associado":
                         "diretamente nesta página, na aba **Histórico e Downloads**, "
                         "acessando com seu nome e data de nascimento."
                     )
+                    if sucesso_email:
+                        st.caption("📧 Notificação enviada por e-mail para a administração.")
                     st.balloons()
 
         # ── ABA 2: HISTÓRICO ────────────────────────────────────────────────
@@ -476,10 +528,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
         st.divider()
 
-        tab_pend, tab_reajuste, tab_relatorio = st.tabs([
+        tab_pend, tab_reajuste, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "💰 Reajuste de Valores",
             "📊 Histórico Geral",
+            "⚙️ Configuração de E-mail",
         ])
 
         # ── ABA 1: FILA DE PENDENTES ────────────────────────────────────────
@@ -554,36 +607,33 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             dep_original = next((d for d in deps if d["nome"] == nome_m), None)
                             estava_incluido = dep_original is not None
 
-                            col_c, col_n, col_p, col_v = st.columns([0.5, 3, 2, 2])
-                            with col_c:
+                            parentesco_m = membro.get("grau_parentesco", "Titular")
+                            col_info_adm, col_v = st.columns([3, 1.8])
+                            with col_info_adm:
                                 inc = st.checkbox(
-                                    "Incl.",
+                                    f"**{nome_m}** ({parentesco_m})",
                                     value=estava_incluido,
                                     key=f"adm_inc_{sol['id']}_{j}",
-                                    label_visibility="collapsed",
                                 )
-                            with col_n:
-                                st.markdown(f"**{nome_m}**")
-                            with col_p:
-                                st.caption(membro.get("grau_parentesco", ""))
                             with col_v:
                                 val_base = dep_original["valor"] if dep_original else (
                                     membro.get("valor_vigente") or membro.get("valor_mensalidade") or 0.0
                                 )
                                 val_adm = st.number_input(
-                                    "R$",
+                                    "Valor (R$)",
                                     value=float(val_base),
                                     min_value=0.0,
                                     step=0.01,
                                     format="%.2f",
                                     key=f"adm_val_{sol['id']}_{j}",
                                     label_visibility="collapsed",
+                                    help=f"Valor de {nome_m}",
                                 )
 
                             if inc:
                                 deps_editados.append({
                                     "nome": nome_m,
-                                    "parentesco": membro.get("grau_parentesco", ""),
+                                    "parentesco": parentesco_m,
                                     "valor": val_adm,
                                 })
                                 valor_soma_adm += val_adm
@@ -719,37 +769,36 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 st.info("Nenhum membro encontrado.")
             else:
                 for k, m in enumerate(membros_filtrados):
-                    col_t, col_n, col_p, col_v_atual, col_v_novo, col_salvar = st.columns(
-                        [2, 3, 1.5, 1.5, 1.5, 1]
-                    )
-                    with col_t:
-                        st.caption(f"Grupo: {m['titular_nome']}")
-                    with col_n:
-                        st.markdown(f"**{m['beneficiario_nome']}**")
-                    with col_p:
-                        st.caption(m.get("grau_parentesco", ""))
-                    with col_v_atual:
-                        st.metric("Vigente", formatar_moeda(m.get("valor_vigente", 0)))
-                    with col_v_novo:
-                        novo_val = st.number_input(
-                            "Novo (R$)",
-                            value=float(m.get("valor_vigente", 0) or 0),
-                            min_value=0.0,
-                            step=0.01,
-                            format="%.2f",
-                            key=f"reaj_{k}",
-                            label_visibility="collapsed",
+                    parentesco_desc = m.get("grau_parentesco", "Titular")
+                    val_atual = float(m.get("valor_vigente", 0) or 0)
+                    with st.expander(
+                        f"👤 {m['beneficiario_nome']} ({parentesco_desc}) — {formatar_moeda(val_atual)}",
+                        expanded=False,
+                    ):
+                        st.caption(
+                            f"**Titular do Grupo:** {m['titular_nome']} | "
+                            f"**Faixa:** {m.get('faixa_etaria', 'N/A')} | "
+                            f"**Plano:** {m.get('tipo_plano', 'N/A')}"
                         )
-                    with col_salvar:
-                        st.markdown("")
-                        if st.button("💾", key=f"save_reaj_{k}", help="Salvar novo valor"):
-                            atualizar_valor_membro(m["beneficiario_nome"], novo_val)
-                            st.toast(
-                                f"Valor de {m['beneficiario_nome']} atualizado para "
-                                f"{formatar_moeda(novo_val)}",
-                                icon="✅",
+                        col_reaj_val, col_reaj_btn = st.columns([3, 1.2])
+                        with col_reaj_val:
+                            novo_val = st.number_input(
+                                "Novo Valor Mensalidade (R$):",
+                                value=val_atual,
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f",
+                                key=f"reaj_{k}",
                             )
-                            st.rerun()
+                        with col_reaj_btn:
+                            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                            if st.button("💾 Salvar", key=f"save_reaj_{k}", use_container_width=True):
+                                atualizar_valor_membro(m["beneficiario_nome"], novo_val)
+                                st.toast(
+                                    f"Valor de {m['beneficiario_nome']} atualizado para {formatar_moeda(novo_val)}",
+                                    icon="✅",
+                                )
+                                st.rerun()
 
         # ── ABA 3: HISTÓRICO GERAL ──────────────────────────────────────────
         with tab_relatorio:
@@ -827,3 +876,65 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         )
                 else:
                     st.info("Nenhuma solicitação encontrada com os filtros aplicados.")
+
+        # ── ABA 4: CONFIGURAÇÃO DE E-MAIL ──────────────────────────────────
+        with tab_config_email:
+            st.markdown("#### ⚙️ Notificações Automáticas por E-mail (Gmail)")
+            st.caption("O sistema envia notificações para o administrador sempre que um associado submete uma nova solicitação.")
+
+            status_smtp = verificar_status_smtp()
+
+            if status_smtp["configurado"]:
+                st.success("✅ **Credenciais SMTP configuradas no sistema!**")
+            else:
+                st.warning("⚠️ **Credenciais SMTP não configuradas ou incompletas no Streamlit Secrets.**")
+
+            col_inf1, col_inf2 = st.columns(2)
+            with col_inf1:
+                st.markdown(f"**Servidor SMTP:** `{status_smtp['server']}:{status_smtp['port']}`")
+                st.markdown(f"**E-mail Remetente (`SMTP_USER`):** `{status_smtp['user']}`")
+            with col_inf2:
+                pass_display = f"•••••••••••••••• ({status_smtp['password_len']} caracteres)" if status_smtp["has_password"] else "❌ Não configurada"
+                st.markdown(f"**Senha de Aplicativo (`SMTP_PASSWORD`):** {pass_display}")
+                st.markdown(f"**Destinatário das Notificações:** `{status_smtp['admin_email']}`")
+
+            st.markdown("---")
+            st.markdown("##### 🧪 Testar Conexão e Disparo de E-mail")
+            st.caption("Envie um e-mail de teste real para o seu endereço para verificar se as credenciais estão válidas e se a entrega está funcionando.")
+
+            if st.button("📨 Enviar E-mail de Teste Agora", type="primary", key="btn_teste_email"):
+                with st.spinner("Conectando ao servidor SMTP do Google e enviando teste..."):
+                    sucesso_t, msg_t = enviar_email_teste()
+                    if sucesso_t:
+                        st.success(
+                            f"🎉 **E-mail de teste enviado com sucesso para {status_smtp['admin_email']}!**\n\n"
+                            "Por favor, verifique a sua **Caixa de Entrada** e também a pasta de **Spam / Lixo Eletrônico** do Gmail."
+                        )
+                    else:
+                        st.error(f"❌ **Falha ao enviar e-mail de teste:**\n\n{msg_t}")
+
+            st.markdown("---")
+            with st.expander("📖 Passo a Passo: Como gerar a Senha de Aplicativo do Gmail"):
+                st.markdown("""
+                Para que o Gmail autorize o envio automático pelo Streamlit Cloud, o Google **não aceita** a sua senha comum de login. É necessário gerar uma **Senha de App**:
+
+                1. Acesse: **[myaccount.google.com/security](https://myaccount.google.com/security)**.
+                2. Certifique-se de que a **Verificação em duas etapas** está **ATIVADA**.
+                3. Acesse diretamente: **[myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)**.
+                4. Em *Nome do app*, digite `ANSEF` e clique em **Criar**.
+                5. O Google exibirá um código de **16 letras** (exemplo: `abcd efgh ijkl mnop`).
+                6. Copie esse código de 16 letras.
+                7. No **Streamlit Cloud** ([share.streamlit.io](https://share.streamlit.io)):
+                   - Abra o seu app e clique no botão **Manage app** (canto inferior direito).
+                   - Clique nos três pontinhos **⋮** > **Settings** > **Secrets**.
+                   - Cole o seguinte bloco com o seu e-mail e a senha de 16 letras:
+                   ```toml
+                   ADMIN_PASSWORD = "mbj172007"
+                   SMTP_SERVER = "smtp.gmail.com"
+                   SMTP_PORT = 587
+                   SMTP_USER = "juliani.mmj@gmail.com"
+                   SMTP_PASSWORD = "sua_senha_de_16_letras_aqui"
+                   ADMIN_EMAIL = "juliani.mmj@gmail.com"
+                   ```
+                   - Clique em **Save**. A aplicação recarregará instantaneamente já com o envio de e-mails habilitado!
+                """)
