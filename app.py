@@ -5,6 +5,7 @@ Ponto de entrada da aplicação Streamlit.
 import json
 import os
 import io
+import base64
 from datetime import date, datetime
 
 import streamlit as st
@@ -121,19 +122,28 @@ st.markdown("""
 # ─── CABEÇALHO ─────────────────────────────────────────────────────────────────
 
 def render_header():
-    """Renderiza o cabeçalho institucional da aplicação."""
+    """Renderiza o cabeçalho institucional da aplicação com o símbolo centralizado acima do título."""
     logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo_ansef.png")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if os.path.exists(logo_path):
-            st.image(logo_path, width=80)
-        st.markdown("""
-        <div class="main-header">
-            <h2>ASSOCIAÇÃO DOS SERVIDORES DA POLÍCIA FEDERAL EM CAMPINAS/SP</h2>
-            <h3>ANSEF/CAS</h3>
-            <p>Sistema de Emissão de Declarações de Pagamento</p>
-        </div>
-        """, unsafe_allow_html=True)
+    logo_b64 = ""
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    img_html = (
+        f'<div style="text-align: center; margin-bottom: 12px;">'
+        f'<img src="data:image/png;base64,{logo_b64}" alt="Brasão ANSEF/CAS" style="display: inline-block; width: 95px; height: auto;" />'
+        f'</div>'
+        if logo_b64 else ""
+    )
+
+    st.markdown(f"""
+    <div class="main-header">
+        {img_html}
+        <h2>ASSOCIAÇÃO DOS SERVIDORES DA POLÍCIA FEDERAL EM CAMPINAS/SP</h2>
+        <h3>ANSEF/CAS</h3>
+        <p>Sistema de Emissão de Declarações de Pagamento</p>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
 
 
