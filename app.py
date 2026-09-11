@@ -863,17 +863,20 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             key="btn_export_csv",
                         )
                     with col_exp2:
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                            df.to_excel(writer, index=False, sheet_name="Declarações")
-                        st.download_button(
-                            "📥 Exportar Excel",
-                            data=buffer.getvalue(),
-                            file_name="relatorio_ansef_declaracoes.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True,
-                            key="btn_export_excel",
-                        )
+                        try:
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                                df.to_excel(writer, index=False, sheet_name="Declarações")
+                            st.download_button(
+                                "📥 Exportar Excel",
+                                data=buffer.getvalue(),
+                                file_name="relatorio_ansef_declaracoes.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                                key="btn_export_excel",
+                            )
+                        except Exception as e:
+                            st.caption("Exportação para Excel requer openpyxl (disponível no Streamlit Cloud). Utilize o botão de CSV ao lado.")
                 else:
                     st.info("Nenhuma solicitação encontrada com os filtros aplicados.")
 
