@@ -292,3 +292,118 @@ def enviar_email_teste() -> tuple[bool, str]:
     msg.attach(MIMEText(corpo_html, "html", "utf-8"))
 
     return _conectar_e_enviar(config, msg)
+
+
+def notificar_administrador_migracao_faixa(migracoes: list[dict]) -> tuple[bool, str]:
+    """
+    Envia e-mail em formato HTML ao administrador informando sobre todos os integrantes
+    que mudaram de faixa etária e tiveram seus valores reajustados.
+    Retorna (sucesso, mensagem).
+    """
+    if not migracoes:
+        return True, "Nenhuma migração para notificar."
+
+    config = obter_config_smtp()
+    if not config["user"] or not config["password"]:
+        msg_aviso = (
+            "Credenciais SMTP não configuradas. "
+            "Configure SMTP_USER e SMTP_PASSWORD nos Secrets do Streamlit."
+        )
+        logger.warning(msg_aviso)
+        return False, msg_aviso
+
+    try:
+        agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        total_migs = len(migracoes)
+
+        linhas_tabela = ""
+        for m in migracoes:
+            parentesco = m.get("grau_parentesco", "Titular")
+            val_ant = formatar_moeda(m.get("valor_faixa_anterior", 0))
+            val_novo = formatar_moeda(m.get("valor_faixa_atual", 0))
+            linhas_tabela += f"""
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:10px 12px;"><strong>{m.get('beneficiario_nome', '')}</strong><br>
+                    <small style="color:#666;">Titular: {m.get('titular_nome', '')}</small>
+                </td>
+                <td style="padding:10px 12px;text-align:center;">{parentesco}</td>
+                <td style="padding:10px 12px;text-align:center;font-weight:bold;color:#1B3A6B;">
+                    {m.get('idade_atual', '-')} anos
+                </td>
+                <td style="padding:10px 12px;text-align:center;">
+                    <span style="color:#777;text-decoration:line-through;">{m.get('faixa_anterior', '-')}</span><br>
+                    <strong style="color:#d9534f;">➔ {m.get('faixa_calculada', '-')}</strong>
+                </td>
+                <td style="padding:10px 12px;text-align:center;">{m.get('tipo_plano_nome', 'Coletivo')}</td>
+                <td style="padding:10px 12px;text-align:right;color:#777;">{val_ant}</td>
+                <td style="padding:10px 12px;text-align:right;font-weight:bold;color:#28a745;">{val_novo}</td>
+            </tr>"""
+
+        corpo_html = f"""
+        <html>
+        <body style="font-family:Arial,Helvetica,sans-serif;color:#333;max-width:700px;margin:auto;">
+            <div style="background:#1B3A6B;padding:20px;text-align:center;">
+                <h1 style="color:white;margin:0;font-size:20px;">
+                    ANSEF/CAS — Sistema de Gestão do Plano de Saúde
+                </h1>
+                <p style="color:#E0E8F5;margin:6px 0 0 0;font-size:14px;">
+                    Notificação de Reajuste por Mudança de Faixa Etária
+                </p>
+            </div>
+            <div style="padding:22px;background:#f9f9f9;">
+                <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:12px 16px;border-radius:4px;margin-bottom:20px;">
+                    <strong style="color:#856404;font-size:15px;">
+                        ⚠️ Atenção: {total_migs} integrante(s) migraram de faixa etária
+                    </strong>
+                    <p style="color:#856404;margin:6px 0 0 0;font-size:13px;">
+                        Com base na data de nascimento cadastrada, os seguintes associados/dependentes atingiram nova faixa etária e seus valores mensais foram recalculados pela tabela oficial de preços.
+                    </p>
+                </div>
+
+                <table style="width:100%;border-collapse:collapse;font-size:13px;background:white;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                    <thead>
+                        <tr style="background:#1B3A6B;color:white;text-align:left;">
+                            <th style="padding:10px 12px;">Beneficiário</th>
+                            <th style="padding:10px 12px;text-align:center;">Grau</th>
+                            <th style="padding:10px 12px;text-align:center;">Idade</th>
+                            <th style="padding:10px 12px;text-align:center;">Transição de Faixa</th>
+                            <th style="padding:10px 12px;text-align:center;">Plano</th>
+                            <th style="padding:10px 12px;text-align:right;">Valor Ant.</th>
+                            <th style="padding:10px 12px;text-align:right;">Novo Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {linhas_tabela}
+                    </tbody>
+                </table>
+
+                <div style="margin-top:22px;padding:14px;background:#e8f0fe;border-radius:6px;border-left:4px solid #1B3A6B;font-size:13px;">
+                    <p style="margin:0;">
+                        📌 <strong>Painel Administrativo:</strong> Acesse a aba <em>💰 Reajuste e Tabela de Preços</em> no sistema para conferir a tabela completa de preços ou aplicar reajustes gerais.
+                    </p>
+                </div>
+
+                <p style="font-size:12px;color:#888;margin-top:20px;">
+                    Data do processamento: {agora}
+                </p>
+            </div>
+            <div style="background:#eee;padding:12px;text-align:center;font-size:12px;color:#777;">
+                ANSEF/CAS — Associação dos Servidores da Polícia Federal em Campinas/SP<br>
+                E-mail automático gerado pelo Sistema de Declarações e Gestão de Planos.
+            </div>
+        </body>
+        </html>
+        """
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[ANSEF/CAS] 🔔 Reajuste: {total_migs} integrante(s) mudaram de faixa etária"
+        msg["From"] = config["user"]
+        msg["To"] = config["admin_email"]
+        msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+
+        return _conectar_e_enviar(config, msg)
+
+    except Exception as e:
+        logger.error(f"Erro ao gerar e-mail de migração de faixa: {e}")
+        return False, str(e)
+

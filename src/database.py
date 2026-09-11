@@ -1,16 +1,33 @@
 """
 Camada de persistência SQLite para o sistema ANSEF/CAS.
-Gerencia membros, configuração de valores reajustados e solicitações de declaração.
+Gerencia membros, configuração de valores reajustados, solicitações de declaração
+e tabela oficial de faixas etárias e preços (Privativo e Coletivo).
 """
 import sqlite3
 import json
 import os
 import csv
+import logging
 from datetime import datetime, date
 from contextlib import contextmanager
 
+logger = logging.getLogger(__name__)
+
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "ansef_database.db")
 CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
+
+TABELA_FAIXAS_PADRAO = [
+    ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
+    ("19 – 23 anos", 19, 23, 412.00, 295.00, 2),
+    ("24 – 28 anos", 24, 28, 475.00, 340.00, 3),
+    ("29 – 33 anos", 29, 33, 515.00, 368.00, 4),
+    ("34 – 38 anos", 34, 38, 544.00, 389.00, 5),
+    ("39 – 43 anos", 39, 43, 627.00, 448.00, 6),
+    ("44 – 48 anos", 44, 48, 857.00, 612.00, 7),
+    ("49 – 53 anos", 49, 53, 1183.00, 845.00, 8),
+    ("54 – 58 anos", 54, 58, 1554.00, 1110.00, 9),
+    ("Acima de 59 anos", 59, 150, 2094.00, 1496.00, 10),
+]
 
 
 @contextmanager
@@ -31,7 +48,7 @@ def get_connection():
 
 
 def inicializar_banco():
-    """Cria as tabelas e carrega os dados iniciais do CSV, se necessário."""
+    """Cria as tabelas, carrega os dados iniciais e atualiza mensalidades com a tabela de faixas."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
     with get_connection() as conn:
@@ -72,14 +89,34 @@ def inicializar_banco():
                 observacoes_admin TEXT,
                 pdf_gerado BLOB
             );
+
+            CREATE TABLE IF NOT EXISTS tabela_faixas_etarias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                faixa_etaria TEXT NOT NULL,
+                idade_min INTEGER NOT NULL,
+                idade_max INTEGER NOT NULL,
+                valor_privativo REAL NOT NULL,
+                valor_coletivo REAL NOT NULL,
+                ordem INTEGER NOT NULL
+            );
         """)
 
+        # Inicializa a tabela de faixas etárias caso vazia
+        count_faixas = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
+        if count_faixas == 0:
+            for item in TABELA_FAIXAS_PADRAO:
+                conn.execute("""
+                    INSERT INTO tabela_faixas_etarias
+                    (faixa_etaria, idade_min, idade_max, valor_privativo, valor_coletivo, ordem)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, item)
+
         # Verifica se já existem membros cadastrados
-        count = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
-        if count == 0:
+        count_membros = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
+        if count_membros == 0:
             _carregar_csv(conn)
         else:
-            # Atualiza correções cadastrais em bases existentes
+            # Atualiza correções cadastrais conhecidas em bases existentes
             conn.execute("""
                 UPDATE membros
                 SET titular_nome = 'José Luis Cordeiro Marcheori'
@@ -95,6 +132,10 @@ def inicializar_banco():
                 SET titular_nome = 'José Luis Cordeiro Marcheori'
                 WHERE titular_nome = 'José Luis Cordeiro Marceori'
             """)
+
+        # Recalcula mensalidades com base na tabela de faixas etárias e idade
+        recalcular_mensalidades_membros(conn)
+        _sincronizar_csv_com_banco(conn)
 
 
 def _carregar_csv(conn):
@@ -147,13 +188,220 @@ def _carregar_csv(conn):
             ))
 
 
-# ─── CONSULTAS DE MEMBROS ────────────────────────────────────────────────────
+def _sincronizar_csv_com_banco(conn):
+    """Atualiza data/integrantes.csv com os valores e dados cadastrais vigentes no banco."""
+    try:
+        rows = conn.execute("""
+            SELECT tipo, beneficiario_nome, titular_nome, data_nascimento,
+                   faixa_etaria, tipo_plano, valor_mensalidade, grau_parentesco
+            FROM membros
+            ORDER BY id
+        """).fetchall()
+
+        if not rows:
+            return
+
+        with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Classificacao", "Nome", "Titular", "Nascimento",
+                "Faixa", "Tipo_Plano", "Valor_Mensalidade", "Grau_Parentesco"
+            ])
+            for r in rows:
+                dt_str = r["data_nascimento"]
+                if dt_str and "-" in dt_str:
+                    try:
+                        dt = datetime.strptime(dt_str, "%Y-%m-%d")
+                        dt_br = dt.strftime("%d/%m/%Y")
+                    except Exception:
+                        dt_br = dt_str
+                else:
+                    dt_br = dt_str or ""
+
+                tipo_cap = r["tipo"].capitalize() if r["tipo"] else "Titular"
+                writer.writerow([
+                    tipo_cap,
+                    r["beneficiario_nome"],
+                    r["titular_nome"],
+                    dt_br,
+                    r["faixa_etaria"] or "",
+                    r["tipo_plano"] or "C",
+                    f"{r['valor_mensalidade']:.2f}",
+                    r["grau_parentesco"] or ""
+                ])
+    except Exception as e:
+        logger.error(f"Erro ao sincronizar CSV: {e}")
+
+
+# ─── CÁLCULOS DE IDADE E FAIXA ETÁRIA ────────────────────────────────────────
+
+def calcular_idade(data_nascimento: str | date | None, data_ref: date | None = None) -> int | None:
+    """Calcula a idade completa em anos a partir de uma string ou objeto date."""
+    if not data_nascimento:
+        return None
+    if isinstance(data_nascimento, str):
+        try:
+            data_limpa = data_nascimento.strip()
+            if "/" in data_limpa:
+                dt = datetime.strptime(data_limpa, "%d/%m/%Y").date()
+            else:
+                dt = datetime.strptime(data_limpa, "%Y-%m-%d").date()
+        except Exception:
+            return None
+    elif isinstance(data_nascimento, date):
+        dt = data_nascimento
+    else:
+        return None
+
+    if data_ref is None:
+        data_ref = date.today()
+
+    return data_ref.year - dt.year - ((data_ref.month, data_ref.day) < (dt.month, dt.day))
+
+
+def obter_tabela_faixas() -> list[dict]:
+    """Retorna todas as faixas etárias da tabela_faixas_etarias ordenadas por ordem crescente."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def determinar_faixa_etaria(idade: int | None) -> dict | None:
+    """Retorna a faixa etária correspondente à idade informada."""
+    if idade is None:
+        return None
+    faixas = obter_tabela_faixas()
+    for f in faixas:
+        if f["idade_min"] <= idade <= f["idade_max"]:
+            return f
+    return None
+
+
+def identificar_faixa_por_rotulo(rotulo: str) -> dict | None:
+    """
+    Identifica a faixa padrão correspondente a um rótulo cadastral
+    (ex: '>59', '54-58', '44-48', '49 - 53', '0-18').
+    """
+    if not rotulo:
+        return None
+    rot = rotulo.strip().replace(" ", "")
+    faixas = obter_tabela_faixas()
+    for f in faixas:
+        f_norm = f["faixa_etaria"].replace(" ", "").replace("–", "-")
+        if rot.lower() in f_norm.lower() or f_norm.lower() in rot.lower():
+            return f
+        if f"{f['idade_min']}-{f['idade_max']}" == rot:
+            return f
+        if (rot in (">59", ">=59") or "acimade59" in rot.lower()) and f["idade_min"] == 59:
+            return f
+        if rot == "0-18" and f["idade_min"] == 0:
+            return f
+    return None
+
+
+def recalcular_mensalidades_membros(conn_existente=None) -> int:
+    """
+    Recalcula o valor da mensalidade de cada membro conforme sua idade atual,
+    seu tipo de plano (P ou C) e os valores vigentes na tabela_faixas_etarias.
+    Preserva a isenção de Nestor Padilha (R$ 0,00).
+    """
+    def _executar(conn):
+        faixas = conn.execute(
+            "SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC"
+        ).fetchall()
+        faixas_lista = [dict(f) for f in faixas]
+
+        membros = conn.execute("SELECT * FROM membros").fetchall()
+        count = 0
+        for m in membros:
+            nome = m["beneficiario_nome"]
+            # Regra de isenção: Nestor Padilha permanece R$ 0,00
+            if nome.strip().lower() == "nestor padilha":
+                conn.execute(
+                    "UPDATE membros SET valor_mensalidade = 0.0 WHERE id = ?",
+                    (m["id"],)
+                )
+                continue
+
+            idade = calcular_idade(m["data_nascimento"])
+            if idade is None:
+                continue
+
+            # Acha a faixa correspondente
+            fx_vigente = None
+            for fx in faixas_lista:
+                if fx["idade_min"] <= idade <= fx["idade_max"]:
+                    fx_vigente = fx
+                    break
+
+            if fx_vigente:
+                tipo = (m["tipo_plano"] or "C").strip().upper()
+                novo_valor = (
+                    fx_vigente["valor_privativo"] if tipo == "P" else fx_vigente["valor_coletivo"]
+                )
+                conn.execute(
+                    "UPDATE membros SET valor_mensalidade = ? WHERE id = ?",
+                    (novo_valor, m["id"])
+                )
+                count += 1
+
+        return count
+
+    if conn_existente:
+        return _executar(conn_existente)
+    else:
+        with get_connection() as conn:
+            atualizados = _executar(conn)
+            _sincronizar_csv_com_banco(conn)
+            return atualizados
+
+
+def atualizar_tabela_faixa(faixa_id: int, valor_privativo: float, valor_coletivo: float) -> None:
+    """Atualiza os preços de uma faixa etária específica e recalcula as mensalidades dos membros."""
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE tabela_faixas_etarias
+            SET valor_privativo = ?, valor_coletivo = ?
+            WHERE id = ?
+        """, (valor_privativo, valor_coletivo, faixa_id))
+        recalcular_mensalidades_membros(conn)
+        _sincronizar_csv_com_banco(conn)
+
+
+def reajustar_tabela_faixas_percentual(percentual: float) -> int:
+    """
+    Aplica reajuste percentual sobre todas as faixas na tabela_faixas_etarias
+    e recalcula as mensalidades de todos os membros no banco de dados e CSV.
+    Retorna o número de membros recalculados.
+    """
+    with get_connection() as conn:
+        faixas = conn.execute("SELECT * FROM tabela_faixas_etarias").fetchall()
+        for f in faixas:
+            novo_p = round(f["valor_privativo"] * (1 + percentual / 100), 2)
+            novo_c = round(f["valor_coletivo"] * (1 + percentual / 100), 2)
+            conn.execute("""
+                UPDATE tabela_faixas_etarias
+                SET valor_privativo = ?, valor_coletivo = ?
+                WHERE id = ?
+            """, (novo_p, novo_c, f["id"]))
+
+        # Limpa customizações individuais obsoletas para que a tabela vigore
+        conn.execute("DELETE FROM config_valores")
+
+        count = recalcular_mensalidades_membros(conn)
+        _sincronizar_csv_com_banco(conn)
+        return count
+
+
+# ─── CONSULTAS DE MEMBROS E MIGRAÇÃO ─────────────────────────────────────────
 
 def listar_titulares() -> list[dict]:
     """Retorna lista de todos os titulares distintos, ordenados alfabeticamente."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT DISTINCT titular_nome, data_nascimento
+            SELECT DISTINCT titular_nome, data_nascimento, tipo_plano
             FROM membros
             WHERE UPPER(tipo) = 'TITULAR'
             ORDER BY titular_nome
@@ -162,11 +410,22 @@ def listar_titulares() -> list[dict]:
 
 
 def buscar_grupo_familiar(titular_nome: str) -> list[dict]:
-    """Retorna todos os membros (titular + dependentes/agregados) de um titular."""
+    """
+    Retorna todos os membros de um titular enriquecidos com:
+    - idade_atual
+    - faixa_calculada
+    - migrou_faixa (booleano indicando se mudou de faixa etária pela idade)
+    - faixa_anterior
+    - valor_faixa_anterior
+    - valor_faixa_atual
+    - tipo_plano_nome
+    """
+    faixas = obter_tabela_faixas()
+
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT m.id, m.tipo, m.beneficiario_nome, m.grau_parentesco,
-                   m.data_nascimento, m.valor_mensalidade,
+            SELECT m.id, m.tipo, m.titular_nome, m.beneficiario_nome, m.grau_parentesco,
+                   m.data_nascimento, m.faixa_etaria, m.tipo_plano, m.valor_mensalidade,
                    COALESCE(cv.valor_atualizado, m.valor_mensalidade) AS valor_vigente
             FROM membros m
             LEFT JOIN config_valores cv ON cv.beneficiario_nome = m.beneficiario_nome
@@ -175,7 +434,71 @@ def buscar_grupo_familiar(titular_nome: str) -> list[dict]:
                 CASE WHEN UPPER(m.tipo) = 'TITULAR' THEN 0 ELSE 1 END,
                 m.beneficiario_nome
         """, (titular_nome,)).fetchall()
-        return [dict(r) for r in rows]
+
+        resultado = []
+        for r in rows:
+            d = dict(r)
+            idade = calcular_idade(d.get("data_nascimento"))
+            d["idade_atual"] = idade
+
+            # Faixa atual pela idade
+            fx_atual = None
+            if idade is not None:
+                for f in faixas:
+                    if f["idade_min"] <= idade <= f["idade_max"]:
+                        fx_atual = f
+                        break
+
+            d["faixa_calculada"] = fx_atual["faixa_etaria"] if fx_atual else (d.get("faixa_etaria") or "N/A")
+
+            # Faixa cadastrada originalmente
+            fx_cad = identificar_faixa_por_rotulo(d.get("faixa_etaria", ""))
+            tipo_plano = (d.get("tipo_plano") or "C").strip().upper()
+            d["tipo_plano_nome"] = "Privativo" if tipo_plano == "P" else "Coletivo"
+
+            if d.get("beneficiario_nome", "").strip().lower() == "nestor padilha":
+                d["valor_faixa_atual"] = 0.0
+                d["valor_faixa_anterior"] = 0.0
+                d["migrou_faixa"] = False
+                d["faixa_anterior"] = d.get("faixa_etaria") or ""
+            elif fx_atual and fx_cad:
+                d["faixa_anterior"] = fx_cad["faixa_etaria"]
+                d["valor_faixa_anterior"] = (
+                    fx_cad["valor_privativo"] if tipo_plano == "P" else fx_cad["valor_coletivo"]
+                )
+                d["valor_faixa_atual"] = (
+                    fx_atual["valor_privativo"] if tipo_plano == "P" else fx_atual["valor_coletivo"]
+                )
+                # Migrou se a ordem da faixa atual for estritamente maior que a faixa cadastrada
+                d["migrou_faixa"] = fx_atual["ordem"] > fx_cad["ordem"]
+            else:
+                d["migrou_faixa"] = False
+                d["faixa_anterior"] = d.get("faixa_etaria") or ""
+                d["valor_faixa_anterior"] = d.get("valor_mensalidade", 0.0)
+                d["valor_faixa_atual"] = d.get("valor_mensalidade", 0.0)
+
+            resultado.append(d)
+
+        return resultado
+
+
+def verificar_migracoes_grupo(titular_nome: str) -> list[dict]:
+    """
+    Retorna a lista de integrantes do titular informado que tiveram mudança
+    de faixa etária pela idade atual.
+    """
+    grupo = buscar_grupo_familiar(titular_nome)
+    return [m for m in grupo if m.get("migrou_faixa")]
+
+
+def listar_todas_migracoes() -> list[dict]:
+    """Retorna todos os integrantes (titulares ou dependentes) que migraram de faixa etária."""
+    titulares = listar_titulares()
+    todas = []
+    for t in titulares:
+        migracoes = verificar_migracoes_grupo(t["titular_nome"])
+        todas.extend(migracoes)
+    return todas
 
 
 def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool:
@@ -191,7 +514,6 @@ def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool
             return False
 
         dt_cadastro = row["data_nascimento"]
-        # Compara no formato ISO YYYY-MM-DD
         return dt_cadastro == data_nascimento.strftime("%Y-%m-%d")
 
 
@@ -211,7 +533,6 @@ def criar_solicitacao(titular_nome: str, titular_cpf: str,
               mes_ref, ano_ref, data_pagamento, valor_total))
         sol_id = cursor.lastrowid
 
-        # Gera e salva o código de validação
         from src.utils import gerar_codigo_validacao
         codigo = gerar_codigo_validacao(sol_id, ano_ref)
         conn.execute("""
@@ -299,8 +620,7 @@ def rejeitar_solicitacao(sol_id: int, observacoes: str) -> None:
 def cancelar_aprovacao(sol_id: int, motivo: str = "") -> None:
     """
     Cancela/revoga uma declaração previamente aprovada pelo administrador.
-    Altera o status para 'CANCELADO', apaga o PDF gerado (para impedir downloads pelo titular),
-    e registra a data e motivo do cancelamento nas observações administrativas.
+    Altera o status para 'CANCELADO', apaga o PDF gerado e registra observações.
     """
     with get_connection() as conn:
         obs_atual = conn.execute(
@@ -343,14 +663,17 @@ def atualizar_solicitacao_campos(sol_id: int, **kwargs) -> None:
         conn.execute(f"UPDATE solicitacoes SET {campos} WHERE id = ?", valores)
 
 
-# ─── REAJUSTE DE VALORES ─────────────────────────────────────────────────────
+# ─── REAJUSTE DE VALORES E MEMBROS ───────────────────────────────────────────
 
 def listar_todos_membros() -> list[dict]:
-    """Retorna todos os membros com seus valores vigentes (reajustados ou base)."""
+    """Retorna todos os membros com seus dados de idade, plano e valores vigentes."""
+    faixas = obter_tabela_faixas()
+
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT m.id, m.tipo, m.titular_nome, m.beneficiario_nome,
-                   m.grau_parentesco, m.valor_mensalidade,
+                   m.grau_parentesco, m.data_nascimento, m.faixa_etaria,
+                   m.tipo_plano, m.valor_mensalidade,
                    COALESCE(cv.valor_atualizado, m.valor_mensalidade) AS valor_vigente,
                    cv.data_atualizacao
             FROM membros m
@@ -359,7 +682,35 @@ def listar_todos_membros() -> list[dict]:
                      CASE WHEN UPPER(m.tipo) = 'TITULAR' THEN 0 ELSE 1 END,
                      m.beneficiario_nome
         """).fetchall()
-        return [dict(r) for r in rows]
+
+        resultado = []
+        for r in rows:
+            d = dict(r)
+            idade = calcular_idade(d.get("data_nascimento"))
+            d["idade_atual"] = idade
+
+            fx_atual = None
+            if idade is not None:
+                for f in faixas:
+                    if f["idade_min"] <= idade <= f["idade_max"]:
+                        fx_atual = f
+                        break
+            d["faixa_calculada"] = fx_atual["faixa_etaria"] if fx_atual else (d.get("faixa_etaria") or "N/A")
+
+            fx_cad = identificar_faixa_por_rotulo(d.get("faixa_etaria", ""))
+            tipo_plano = (d.get("tipo_plano") or "C").strip().upper()
+            d["tipo_plano_nome"] = "Privativo" if tipo_plano == "P" else "Coletivo"
+
+            if d.get("beneficiario_nome", "").strip().lower() == "nestor padilha":
+                d["migrou_faixa"] = False
+            elif fx_atual and fx_cad:
+                d["migrou_faixa"] = fx_atual["ordem"] > fx_cad["ordem"]
+            else:
+                d["migrou_faixa"] = False
+
+            resultado.append(d)
+
+        return resultado
 
 
 def atualizar_valor_membro(beneficiario_nome: str, novo_valor: float) -> None:
@@ -376,8 +727,8 @@ def atualizar_valor_membro(beneficiario_nome: str, novo_valor: float) -> None:
 
 def reajustar_valores_lote(percentual: float) -> int:
     """
-    Aplica reajuste percentual sobre todos os membros.
-    Retorna o número de membros atualizados.
+    Aplica reajuste percentual sobre todos os membros na tabela config_valores.
+    (Para reajuste da tabela de faixas oficial, utilize reajustar_tabela_faixas_percentual).
     """
     membros = listar_todos_membros()
     count = 0

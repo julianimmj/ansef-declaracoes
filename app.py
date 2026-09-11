@@ -29,6 +29,12 @@ from src.database import (
     reajustar_valores_lote,
     contar_solicitacoes_por_status,
     contar_aprovadas_mes_atual,
+    obter_tabela_faixas,
+    atualizar_tabela_faixa,
+    reajustar_tabela_faixas_percentual,
+    recalcular_mensalidades_membros,
+    verificar_migracoes_grupo,
+    listar_todas_migracoes,
 )
 from src.auth import (
     login_associado,
@@ -41,6 +47,7 @@ from src.auth import (
 )
 from src.email_service import (
     notificar_administrador_nova_solicitacao,
+    notificar_administrador_migracao_faixa,
     verificar_status_smtp,
     enviar_email_teste,
 )
@@ -135,6 +142,33 @@ st.markdown("""
         display: inline-block;
         margin-bottom: 6px;
         border: 1px solid #CBD5E1;
+    }
+
+    /* Badges de Modalidade do Plano e Faixa */
+    .badge-plano {
+        color: white;
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        display: inline-block;
+        margin-bottom: 10px;
+    }
+    .badge-plano-p {
+        background: #1B3A6B;
+    }
+    .badge-plano-c {
+        background: #0284C7;
+    }
+    .tag-migracao-destaque {
+        background: #FEF3C7;
+        color: #92400E;
+        font-size: 0.78rem;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-weight: 700;
+        border: 1px solid #FCD34D;
+        display: inline-block;
     }
 
     /* Cartões de Métricas */
@@ -281,24 +315,89 @@ if modulo == "🏠 Área do Associado":
     else:
         # ── PAINEL DO ASSOCIADO LOGADO ──────────────────────────────────────
         titular_logado = get_associado_logado()
-        st.markdown(f"### 👤 Portal do Associado: **{titular_logado}**")
+        grupo = buscar_grupo_familiar(titular_logado)
+        if not grupo:
+            st.warning("Grupo familiar não encontrado no cadastro.")
+            st.stop()
 
-        col_logout, _ = st.columns([1, 4])
+        tipo_plano_grupo = grupo[0].get("tipo_plano_nome", "Coletivo")
+        sigla_plano = (grupo[0].get("tipo_plano") or "C").upper()
+        classe_badge = "badge-plano-p" if sigla_plano == "P" else "badge-plano-c"
+
+        col_tit_info, col_logout = st.columns([3.5, 1])
+        with col_tit_info:
+            st.markdown(f"### 👤 Portal do Associado: **{titular_logado}**")
+            st.markdown(
+                f'<span class="badge-plano {classe_badge}">📋 Modalidade do Grupo: Plano {tipo_plano_grupo} ({sigla_plano})</span>',
+                unsafe_allow_html=True,
+            )
         with col_logout:
-            if st.button("🚪 Sair", use_container_width=True):
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            if st.button("🚪 Sair do Portal", use_container_width=True, key="btn_logout_assoc"):
                 logout_associado()
                 st.rerun()
+
+        # ── DESTAQUE DE REAJUSTE POR MUDANÇA DE FAIXA ETÁRIA ───────────────
+        migracoes_grupo = [m for m in grupo if m.get("migrou_faixa")]
+        if migracoes_grupo:
+            itens_mig_html = "".join([
+                f"<li style='margin-bottom: 6px;'>"
+                f"<strong>{m['beneficiario_nome']}</strong> ({m['grau_parentesco']}): "
+                f"completou <strong>{m['idade_atual']} anos</strong> e mudou da faixa <em>{m['faixa_anterior']}</em> "
+                f"({formatar_moeda(m['valor_faixa_anterior'])}) para a faixa <strong>{m['faixa_calculada']}</strong>. "
+                f"Novo valor mensal: <strong style='color:#B94A48;'>{formatar_moeda(m['valor_faixa_atual'])}</strong> (Plano {m['tipo_plano_nome']})."
+                f"</li>"
+                for m in migracoes_grupo
+            ])
+            st.markdown(f"""
+            <div style="background-color: #FFF3CD; border: 2px solid #FCD34D; border-left: 6px solid #D97706; border-radius: 8px; padding: 14px 18px; margin: 12px 0 16px 0;">
+                <h4 style="color: #92400E; margin: 0 0 6px 0; display: flex; align-items: center; gap: 8px;">
+                    ⚠️ <span>Atenção: Reajuste por Mudança de Faixa Etária Identificado</span>
+                </h4>
+                <p style="color: #92400E; font-size: 0.93rem; margin-bottom: 8px;">
+                    Identificamos que integrante(s) do seu grupo familiar completaram idade correspondente a uma nova faixa etária. O valor da mensalidade foi atualizado conforme a tabela oficial de preços:
+                </p>
+                <ul style="color: #92400E; font-size: 0.92rem; margin-bottom: 8px; padding-left: 20px;">
+                    {itens_mig_html}
+                </ul>
+                <small style="color: #92400E;">Os valores correspondentes foram devidamente atualizados no seu perfil e já constam no formulário abaixo.</small>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background-color: #ECFDF5; border: 1px solid #A7F3D0; border-left: 5px solid #10B981; border-radius: 8px; padding: 10px 14px; margin: 10px 0 16px 0;">
+                <span style="color: #065F46; font-weight: 600;">✅ Regularidade de Faixa Etária:</span>
+                <span style="color: #065F46; font-size: 0.92rem;"> Todos os integrantes do grupo familiar estão na faixa etária correspondente à sua idade no Plano {tipo_plano_grupo}.</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Resumo dos integrantes e valores vigentes
+        with st.expander("👥 Integrantes do Grupo e Valores Vigentes por Faixa Etária", expanded=False):
+            dados_tabela = []
+            for m in grupo:
+                dt_nasc_exib = m.get("data_nascimento", "")
+                if dt_nasc_exib and "-" in dt_nasc_exib:
+                    try:
+                        dt_nasc_exib = datetime.strptime(dt_nasc_exib, "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except Exception:
+                        pass
+                dados_tabela.append({
+                    "Beneficiário": m["beneficiario_nome"],
+                    "Parentesco": m["grau_parentesco"],
+                    "Nascimento": dt_nasc_exib,
+                    "Idade": f"{m.get('idade_atual', '-')} anos",
+                    "Faixa Etária": m.get("faixa_calculada", "-"),
+                    "Modalidade": m.get("tipo_plano_nome", tipo_plano_grupo),
+                    "Mensalidade": formatar_moeda(m.get("valor_vigente", 0.0)),
+                    "Situação Faixa": "⚠️ Reajustada" if m.get("migrou_faixa") else "Regular",
+                })
+            st.dataframe(pd.DataFrame(dados_tabela), use_container_width=True, hide_index=True)
 
         tab_nova, tab_historico = st.tabs(["📝 Nova Solicitação", "📄 Histórico e Downloads"])
 
         # ── ABA 1: NOVA SOLICITAÇÃO ─────────────────────────────────────────
         with tab_nova:
             st.markdown("#### Nova Solicitação de Declaração de Pagamento")
-
-            grupo = buscar_grupo_familiar(titular_logado)
-            if not grupo:
-                st.warning("Grupo familiar não encontrado no cadastro.")
-                st.stop()
 
             # CPF do titular
             cpf_input = st.text_input(
@@ -342,9 +441,14 @@ if modulo == "🏠 Área do Associado":
 
                 m_id = membro.get("id", i)
                 parentesco = membro.get("grau_parentesco", "Titular")
+                idade_txt = f"{membro.get('idade_atual')} anos" if membro.get("idade_atual") is not None else ""
+                faixa_txt = membro.get("faixa_calculada", "")
+                aviso_mig = " ⚠️ [Faixa Reajustada]" if membro.get("migrou_faixa") else ""
+
                 with col_membro:
+                    label_box = f"**{membro['beneficiario_nome']}** ({parentesco}) — {idade_txt} | {faixa_txt}{aviso_mig}"
                     checked = st.checkbox(
-                        f"**{membro['beneficiario_nome']}** ({parentesco})",
+                        label_box,
                         value=True,
                         key=f"check_m_{m_id}_{i}",
                     )
@@ -550,10 +654,56 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
         st.divider()
 
+        # ── ALERTA DE MIGRAÇÃO DE FAIXA ETÁRIA (NOTIFICAÇÃO ADMINISTRATIVA) ──
+        migracoes_admin = listar_todas_migracoes()
+        if migracoes_admin:
+            with st.container():
+                st.markdown(f"""
+                <div style="background-color: #FFFBEB; border: 2px solid #FCD34D; border-left: 6px solid #D97706; border-radius: 8px; padding: 14px 18px; margin: 10px 0 16px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <h4 style="color: #92400E; margin: 0; font-size: 1.05rem;">
+                                🔔 Notificação: {len(migracoes_admin)} Integrante(s) com Mudança de Faixa Etária
+                            </h4>
+                            <p style="color: #92400E; margin: 4px 0 0 0; font-size: 0.9rem;">
+                                Foram identificados associados/dependentes que atingiram idade de transição de faixa etária. Seus valores de mensalidade já foram recalculados pela tabela oficial de preços.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                col_btn_mail, _ = st.columns([2.2, 2.8])
+                with col_btn_mail:
+                    if st.button("📧 Enviar Relatório de Faixas por E-mail ao Administrador", key="btn_send_mail_faixas_top", use_container_width=True):
+                        with st.spinner("Enviando e-mail de notificação ao administrador..."):
+                            ok_mail, msg_mail = notificar_administrador_migracao_faixa(migracoes_admin)
+                            if ok_mail:
+                                st.success("✅ E-mail enviado com sucesso ao administrador!")
+                            else:
+                                st.error(f"❌ Falha ao enviar e-mail: {msg_mail}")
+
+                with st.expander(f"📋 Visualizar Tabela dos {len(migracoes_admin)} Integrantes com Reajuste por Faixa", expanded=False):
+                    df_migs = pd.DataFrame([
+                        {
+                            "Titular": m["titular_nome"],
+                            "Beneficiário": m["beneficiario_nome"],
+                            "Parentesco": m["grau_parentesco"],
+                            "Idade": f"{m['idade_atual']} anos",
+                            "Faixa Anterior": m["faixa_anterior"],
+                            "Nova Faixa": m["faixa_calculada"],
+                            "Plano": m["tipo_plano_nome"],
+                            "Valor Anterior": formatar_moeda(m["valor_faixa_anterior"]),
+                            "Novo Valor": formatar_moeda(m["valor_faixa_atual"]),
+                        }
+                        for m in migracoes_admin
+                    ])
+                    st.dataframe(df_migs, use_container_width=True, hide_index=True)
+
         tab_pend, tab_aprovadas, tab_reajuste, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "📄 Declarações Aprovadas",
-            "💰 Reajuste de Valores",
+            "💰 Tabela de Preços e Reajustes",
             "📊 Histórico Geral",
             "⚙️ Configuração de E-mail",
         ])
@@ -830,87 +980,142 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                     st.success(f"Declaração #{sol_ap['id']} cancelada com sucesso!")
                                     st.rerun()
 
-        # ── ABA 2: REAJUSTE DE VALORES ──────────────────────────────────────
+        # ── ABA 3: TABELA DE PREÇOS E REAJUSTES ─────────────────────────────
         with tab_reajuste:
-            st.markdown("#### 💰 Tabela de Mensalidades e Reajustes")
+            st.markdown("#### 💰 Tabela Oficial de Faixas Etárias e Reajustes")
 
-            membros = listar_todos_membros()
+            subtab_faixas, subtab_membros = st.tabs([
+                "📊 Tabela de Preços por Faixa Etária",
+                "👥 Mensalidades Vigentes por Integrante",
+            ])
 
-            # Reajuste em lote
-            st.markdown("##### Reajuste em Lote")
-            col_perc, col_btn_lote = st.columns([2, 1])
-            with col_perc:
-                percentual = st.number_input(
-                    "Percentual de Reajuste (%)",
-                    value=0.0,
-                    step=0.1,
-                    format="%.2f",
-                    help="Positivo para aumento, negativo para redução.",
+            with subtab_faixas:
+                st.markdown("##### 🏷️ Preços por Faixa Etária (Planos Privativo e Coletivo)")
+                st.caption(
+                    "Esta tabela define os valores base por faixa etária. "
+                    "Qualquer correção salva aqui recalcula automaticamente as mensalidades de todos os associados e dependentes."
                 )
-            with col_btn_lote:
-                st.markdown("")
-                st.markdown("")
-                if st.button("📈 Aplicar Reajuste em Lote", use_container_width=True):
-                    if percentual == 0:
-                        st.warning("Informe um percentual diferente de zero.")
-                    else:
-                        count = reajustar_valores_lote(percentual)
-                        st.success(
-                            f"✅ Reajuste de {percentual:+.2f}% aplicado a "
-                            f"{count} membro(s)."
+
+                # Reajuste geral da tabela em percentual
+                with st.expander("📈 Aplicar Reajuste Percentual Geral na Tabela (%)", expanded=False):
+                    col_p_in, col_p_btn = st.columns([2, 1.2])
+                    with col_p_in:
+                        perc_tab = st.number_input(
+                            "Percentual de Reajuste da Tabela (%)",
+                            value=0.0,
+                            step=0.1,
+                            format="%.2f",
+                            key="perc_reaj_tabela_geral",
+                            help="Aplica o percentual em todas as faixas (Privativo e Coletivo) e recalcula todos os membros da base.",
                         )
-                        st.rerun()
-
-            st.markdown("---")
-            st.markdown("##### Valores Individuais")
-            st.caption("Pesquise e altere valores individualmente. As alterações são imediatas.")
-
-            # Filtro de busca
-            busca = st.text_input("🔍 Buscar por nome:", placeholder="Digite para filtrar...")
-
-            membros_filtrados = membros
-            if busca:
-                busca_lower = busca.lower()
-                membros_filtrados = [
-                    m for m in membros
-                    if busca_lower in m["beneficiario_nome"].lower()
-                    or busca_lower in m["titular_nome"].lower()
-                ]
-
-            if not membros_filtrados:
-                st.info("Nenhum membro encontrado.")
-            else:
-                for k, m in enumerate(membros_filtrados):
-                    parentesco_desc = m.get("grau_parentesco", "Titular")
-                    val_atual = float(m.get("valor_vigente", 0) or 0)
-                    with st.expander(
-                        f"👤 {m['beneficiario_nome']} ({parentesco_desc}) — {formatar_moeda(val_atual)}",
-                        expanded=False,
-                    ):
-                        st.caption(
-                            f"**Titular do Grupo:** {m['titular_nome']} | "
-                            f"**Faixa:** {m.get('faixa_etaria', 'N/A')} | "
-                            f"**Plano:** {m.get('tipo_plano', 'N/A')}"
-                        )
-                        col_reaj_val, col_reaj_btn = st.columns([3, 1.2])
-                        with col_reaj_val:
-                            novo_val = st.number_input(
-                                "Novo Valor Mensalidade (R$):",
-                                value=val_atual,
-                                min_value=0.0,
-                                step=0.01,
-                                format="%.2f",
-                                key=f"reaj_{k}",
-                            )
-                        with col_reaj_btn:
-                            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                            if st.button("💾 Salvar", key=f"save_reaj_{k}", use_container_width=True):
-                                atualizar_valor_membro(m["beneficiario_nome"], novo_val)
-                                st.toast(
-                                    f"Valor de {m['beneficiario_nome']} atualizado para {formatar_moeda(novo_val)}",
-                                    icon="✅",
-                                )
+                    with col_p_btn:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("Aplicar na Tabela", type="primary", key="btn_reaj_tabela_geral", use_container_width=True):
+                            if perc_tab == 0:
+                                st.warning("Informe um percentual diferente de zero.")
+                            else:
+                                tot_recalc = reajustar_tabela_faixas_percentual(perc_tab)
+                                st.success(f"✅ Reajuste de {perc_tab:+.2f}% aplicado a todas as faixas! {tot_recalc} integrante(s) recalculados.")
                                 st.rerun()
+
+                faixas_atuais = obter_tabela_faixas()
+
+                st.markdown("---")
+                st.markdown("##### ✏️ Edição dos Valores por Faixa Etária")
+
+                valores_editados = {}
+                for fx in faixas_atuais:
+                    col_fx_nome, col_fx_p, col_fx_c = st.columns([2.5, 2, 2])
+                    with col_fx_nome:
+                        idade_limite = f"{fx['idade_min']} a {fx['idade_max']} anos" if fx["idade_max"] < 120 else "A partir de 59 anos"
+                        st.markdown(
+                            f"**{fx['faixa_etaria']}**<br><small style='color:#666;'>{idade_limite}</small>",
+                            unsafe_allow_html=True,
+                        )
+                    with col_fx_p:
+                        novo_p = st.number_input(
+                            "Valor Privativo (R$)",
+                            value=float(fx["valor_privativo"]),
+                            min_value=0.0,
+                            step=1.0,
+                            format="%.2f",
+                            key=f"fx_p_{fx['id']}",
+                        )
+                    with col_fx_c:
+                        novo_c = st.number_input(
+                            "Valor Coletivo (R$)",
+                            value=float(fx["valor_coletivo"]),
+                            min_value=0.0,
+                            step=1.0,
+                            format="%.2f",
+                            key=f"fx_c_{fx['id']}",
+                        )
+                    valores_editados[fx["id"]] = (novo_p, novo_c)
+
+                st.markdown("")
+                if st.button("💾 Salvar Alterações na Tabela e Recalcular Todos os Integrantes", type="primary", use_container_width=True, key="btn_save_all_faixas"):
+                    for fx_id, (vp, vc) in valores_editados.items():
+                        atualizar_tabela_faixa(fx_id, vp, vc)
+                    st.success("✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados.")
+                    st.rerun()
+
+            with subtab_membros:
+                membros = listar_todos_membros()
+
+                st.markdown("##### Mensalidades Vigentes por Integrante")
+                st.caption("Valores calculados com base na idade atual e no plano de cada titular (C ou P).")
+
+                # Filtro de busca
+                busca = st.text_input("🔍 Buscar por nome do titular ou dependente:", placeholder="Digite para filtrar...")
+
+                membros_filtrados = membros
+                if busca:
+                    busca_lower = busca.lower()
+                    membros_filtrados = [
+                        m for m in membros
+                        if busca_lower in m["beneficiario_nome"].lower()
+                        or busca_lower in m["titular_nome"].lower()
+                    ]
+
+                if not membros_filtrados:
+                    st.info("Nenhum membro encontrado.")
+                else:
+                    for k, m in enumerate(membros_filtrados):
+                        parentesco_desc = m.get("grau_parentesco", "Titular")
+                        val_atual = float(m.get("valor_vigente", 0) or 0)
+                        idade_str = f"{m['idade_atual']} anos" if m.get("idade_atual") is not None else "N/A"
+                        faixa_str = m.get("faixa_calculada", "N/A")
+                        aviso_mig_tag = " [⚠️ FAIXA REAJUSTADA]" if m.get("migrou_faixa") else ""
+
+                        with st.expander(
+                            f"👤 {m['beneficiario_nome']} ({parentesco_desc}) — {formatar_moeda(val_atual)}{aviso_mig_tag}",
+                            expanded=False,
+                        ):
+                            st.caption(
+                                f"**Titular do Grupo:** {m['titular_nome']} | "
+                                f"**Idade:** {idade_str} | "
+                                f"**Faixa Etária:** {faixa_str} | "
+                                f"**Modalidade:** Plano {m.get('tipo_plano_nome', 'Coletivo')} ({m.get('tipo_plano', 'C')})"
+                            )
+                            col_reaj_val, col_reaj_btn = st.columns([3, 1.2])
+                            with col_reaj_val:
+                                novo_val = st.number_input(
+                                    "Ajuste Manual da Mensalidade (R$):",
+                                    value=val_atual,
+                                    min_value=0.0,
+                                    step=0.01,
+                                    format="%.2f",
+                                    key=f"reaj_{k}",
+                                )
+                            with col_reaj_btn:
+                                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                                if st.button("💾 Salvar Ajuste", key=f"save_reaj_{k}", use_container_width=True):
+                                    atualizar_valor_membro(m["beneficiario_nome"], novo_val)
+                                    st.toast(
+                                        f"Valor de {m['beneficiario_nome']} atualizado para {formatar_moeda(novo_val)}",
+                                        icon="✅",
+                                    )
+                                    st.rerun()
 
         # ── ABA 3: HISTÓRICO GERAL ──────────────────────────────────────────
         with tab_relatorio:

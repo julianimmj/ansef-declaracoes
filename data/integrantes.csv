@@ -1,37 +1,37 @@
 Classificacao,Nome,Titular,Nascimento,Faixa,Tipo_Plano,Valor_Mensalidade,Grau_Parentesco
-Titular,Admir Tozo,Admir Tozo,24/12/1948,>59,P,1710.00,Titular
-Agregado,Maria aparecida Segala T.,Admir Tozo,16/11/1926,>59,P,1710.00,Agregado(a)
-Titular,Carlos Sergio Praciano P.,Carlos Sergio Praciano P.,07/09/1955,>59,P,1710.00,Titular
-Dependente,Ana Aparecida Parente P.,Carlos Sergio Praciano P.,03/01/1960,>59,P,1710.00,Cônjuge
-Titular,Cassio Guilherme Reis S.,Cassio Guilherme Reis S.,05/10/1968,54-58,C,907.00,Titular
-Titular,Devanyr Romão Jr.,Devanyr Romão Jr.,03/09/1963,>59,C,1222.00,Titular
-Dependente,Edneia d. Graças Oliveira R.,Devanyr Romão Jr.,29/10/1963,>59,C,1222.00,Cônjuge
-Titular,Eduardo Castro de Ne,Eduardo Castro de Ne,23/05/1955,>59,C,1222.00,Titular
-Dependente,Carmen Regina Bueno de Ne,Eduardo Castro de Ne,23/10/1954,>59,C,1222.00,Cônjuge
-Titular,Fabio de Paula Guerra,Fabio de Paula Guerra,30/07/1977,44-48,C,500.00,Titular
-Dependente,Letícia Maria de Rosa O. G.,Fabio de Paula Guerra,20/10/1975,49-53,C,500.00,Cônjuge
-Titular,Francisco Sandin Martins,Francisco Sandin Martins,12/02/1959,>59,C,1222.00,Titular
-Titular,Ivan Esteves Ribeiro Filho,Ivan Esteves Ribeiro Filho,04/09/1972,49-53,C,690.00,Titular
-Agregado,Maria José Soares,Ivan Esteves Ribeiro Filho,23/06/1944,>59,C,1222.00,Mãe
+Titular,Admir Tozo,Admir Tozo,24/12/1948,>59,P,2094.00,Titular
+Agregado,Maria aparecida Segala T.,Admir Tozo,16/11/1926,>59,P,2094.00,Agregado(a)
+Titular,Carlos Sergio Praciano P.,Carlos Sergio Praciano P.,07/09/1955,>59,P,2094.00,Titular
+Dependente,Ana Aparecida Parente P.,Carlos Sergio Praciano P.,03/01/1960,>59,P,2094.00,Cônjuge
+Titular,Cassio Guilherme Reis S.,Cassio Guilherme Reis S.,05/10/1968,54-58,C,1110.00,Titular
+Titular,Devanyr Romão Jr.,Devanyr Romão Jr.,03/09/1963,>59,C,1496.00,Titular
+Dependente,Edneia d. Graças Oliveira R.,Devanyr Romão Jr.,29/10/1963,>59,C,1496.00,Cônjuge
+Titular,Eduardo Castro de Ne,Eduardo Castro de Ne,23/05/1955,>59,C,1496.00,Titular
+Dependente,Carmen Regina Bueno de Ne,Eduardo Castro de Ne,23/10/1954,>59,C,1496.00,Cônjuge
+Titular,Fabio de Paula Guerra,Fabio de Paula Guerra,30/07/1977,44-48,C,845.00,Titular
+Dependente,Letícia Maria de Rosa O. G.,Fabio de Paula Guerra,20/10/1975,49-53,C,845.00,Cônjuge
+Titular,Francisco Sandin Martins,Francisco Sandin Martins,12/02/1959,>59,C,1496.00,Titular
+Titular,Ivan Esteves Ribeiro Filho,Ivan Esteves Ribeiro Filho,04/09/1972,49-53,C,1110.00,Titular
+Agregado,Maria José Soares,Ivan Esteves Ribeiro Filho,23/06/1944,>59,C,1496.00,Mãe
 Agregado,Nestor Padilha,Ivan Esteves Ribeiro Filho,29/10/1940,>59,C,0.00,Sogro
-Agregado,Neiva Baptista Padilha,Ivan Esteves Ribeiro Filho,26/11/1939,>59,C,1222.00,Sogra
-Titular,Jaeder Machado de Araújo,Jaeder Machado de Araújo,14/10/1957,>59,P,1710.00,Titular
-Dependente,Maria Cabrini Grossi A.,Jaeder Machado de Araújo,20/09/1956,>59,P,1710.00,Cônjuge
-Titular,José Luis Cordeiro Marcheori,José Luis Cordeiro Marcheori,19/01/1958,>59,C,1222.00,Titular
-Dependente,Teresinha Veronez M.,José Luis Cordeiro Marcheori,06/04/1962,>59,C,1222.00,Cônjuge
-Titular,Marcio Carlos Rosa,Marcio Carlos Rosa,07/03/1966,>59,C,907.00,Titular
-Dependente,Rosangela Alves Soares,Marcio Carlos Rosa,19/10/1965,>59,C,907.00,Cônjuge
-Agregado,Catharina Aydee Tempesta R.,Marcio Carlos Rosa,12/02/1936,>59,C,1222.00,Agregado(a)
-Dependente,DANILO SOARES ROSA,Marcio Carlos Rosa,26/08/2002,19-23,C,240.00,Filho(a)
-Titular,Nicodemos Assunção dos Santos,Nicodemos Assunção dos Santos,26/02/1948,>59,C,1222.00,Titular
-Dependente,Creuza Costa dos Santos,Nicodemos Assunção dos Santos,31/12/1954,>59,C,1222.00,Cônjuge
-Titular,Raimundo Henrique de A. Neto,Raimundo Henrique de A. Neto,08/07/1965,>59,C,907.00,Titular
-Dependente,Zelandia Santana de Araujo,Raimundo Henrique de A. Neto,26/12/1962,>59,C,1222.00,Cônjuge
-Titular,Renan Marçal Rodrigues,Renan Marçal Rodrigues,22/11/1965,54-58,P,1270.00,Titular
-Titular,Vera Lucia Damasio Marques e S.,Vera Lucia Damasio Marques e S.,16/07/1953,>59,P,1710.00,Titular
-Titular,LEA BARBOSA DIOGENES DOS ANJOS,LEA BARBOSA DIOGENES DOS ANJOS,03/01/1948,>59,C,1222.00,Titular
-Titular,SERGIO LUIZ DE MELLO FURTADO MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,24/06/1980,44-48,C,907.00,Titular
-Dependente,JULIANY BOAVENTURA DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,10/03/1984,39-43,C,907.00,Cônjuge
-Dependente,FILIPE DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,06/05/2006,19-23,C,1222.00,Filho(a)
-Dependente,DAVI DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,21/01/2010,0-18,C,240.00,Filho(a)
-Dependente,LEVI DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,31/08/2017,0-18,C,240.00,Filho(a)
+Agregado,Neiva Baptista Padilha,Ivan Esteves Ribeiro Filho,26/11/1939,>59,C,1496.00,Sogra
+Titular,Jaeder Machado de Araújo,Jaeder Machado de Araújo,14/10/1957,>59,P,2094.00,Titular
+Dependente,Maria Cabrini Grossi A.,Jaeder Machado de Araújo,20/09/1956,>59,P,2094.00,Cônjuge
+Titular,José Luis Cordeiro Marcheori,José Luis Cordeiro Marcheori,19/01/1958,>59,C,1496.00,Titular
+Dependente,Teresinha Veronez M.,José Luis Cordeiro Marcheori,06/04/1962,>59,C,1496.00,Cônjuge
+Titular,Marcio Carlos Rosa,Marcio Carlos Rosa,07/03/1966,>59,C,1496.00,Titular
+Dependente,Rosangela Alves Soares,Marcio Carlos Rosa,19/10/1965,>59,C,1496.00,Cônjuge
+Agregado,Catharina Aydee Tempesta R.,Marcio Carlos Rosa,12/02/1936,>59,C,1496.00,Agregado(a)
+Dependente,DANILO SOARES ROSA,Marcio Carlos Rosa,26/08/2002,19-23,C,340.00,Filho(a)
+Titular,Nicodemos Assunção dos Santos,Nicodemos Assunção dos Santos,26/02/1948,>59,C,1496.00,Titular
+Dependente,Creuza Costa dos Santos,Nicodemos Assunção dos Santos,31/12/1954,>59,C,1496.00,Cônjuge
+Titular,Raimundo Henrique de A. Neto,Raimundo Henrique de A. Neto,08/07/1965,>59,C,1496.00,Titular
+Dependente,Zelandia Santana de Araujo,Raimundo Henrique de A. Neto,26/12/1962,>59,C,1496.00,Cônjuge
+Titular,Renan Marçal Rodrigues,Renan Marçal Rodrigues,22/11/1965,54-58,P,2094.00,Titular
+Titular,Vera Lucia Damasio Marques e S.,Vera Lucia Damasio Marques e S.,16/07/1953,>59,P,2094.00,Titular
+Titular,LEA BARBOSA DIOGENES DOS ANJOS,LEA BARBOSA DIOGENES DOS ANJOS,03/01/1948,>59,C,1496.00,Titular
+Titular,SERGIO LUIZ DE MELLO FURTADO MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,24/06/1980,44-48,C,612.00,Titular
+Dependente,JULIANY BOAVENTURA DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,10/03/1984,39-43,C,448.00,Cônjuge
+Dependente,FILIPE DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,06/05/2006,19-23,C,295.00,Filho(a)
+Dependente,DAVI DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,21/01/2010,0-18,C,250.00,Filho(a)
+Dependente,LEVI DE MIRANDA MOTTA,SERGIO LUIZ DE MELLO FURTADO MOTTA,31/08/2017,0-18,C,250.00,Filho(a)
