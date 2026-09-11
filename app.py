@@ -487,8 +487,8 @@ if modulo == "🏠 Área do Associado":
                 st.caption("Utilize a chave Pix acima para realizar o pagamento mensal à ANSEF Campinas.")
 
             st.markdown("""
-            <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px 14px; border-radius: 6px; margin-top: 10px; font-size: 0.90rem; color: #92400E;">
-                ⏰ <strong>Observação Importante sobre Vencimento:</strong> O pagamento efetuado pela ANSEF é realizado <strong>todo dia 10 do respectivo mês</strong> (ou dia útil subsequente). O depósito/transferência deve ser feito em <strong>tempo hábil</strong> para que haja saldo disponível na conta da Associação.
+            <div style="background-color: #FFFBEB; border-left: 3px solid #D97706; padding: 6px 10px; border-radius: 4px; margin-top: 8px; font-size: 0.82rem; color: #92400E;">
+                ⏰ <strong>Vencimento:</strong> O pagamento efetuado pela ANSEF ocorre <strong>todo dia 10</strong> (ou dia útil subsequente). O depósito deve ser feito em tempo hábil para que haja saldo na conta da Associação.
             </div>
             """, unsafe_allow_html=True)
 
@@ -514,18 +514,28 @@ if modulo == "🏠 Área do Associado":
                 })
             st.dataframe(pd.DataFrame(dados_tabela), use_container_width=True, hide_index=True)
 
-            # Detalhamento do Plano Odontológico Uniodonto
+            # Detalhamento do Plano Odontológico Uniodonto (compacto)
             uniodonto_grupo = obter_uniodonto_titular(titular_logado)
-            st.markdown("---")
-            st.markdown("##### 🦷 Plano Odontológico (Uniodonto Campinas)")
             if uniodonto_grupo:
-                col_u1, col_u2, col_u3 = st.columns(3)
-                col_u1.metric("Status Odontológico", "Ativo ✅")
-                col_u2.metric("Vidas Cobertas", f"{uniodonto_grupo['vidas']} vida(s)")
-                col_u3.metric("Mensalidade Odonto", formatar_moeda(uniodonto_grupo["valor_total"]), help=f"R$ {uniodonto_grupo['valor_por_vida']:.2f} por vida")
-                st.caption("ℹ️ Plano odontológico contratado junto à Uniodonto Campinas e faturado mensalmente através da ANSEF Campinas.")
+                st.markdown(f"""
+                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 3px solid #0284C7; border-radius: 4px; padding: 6px 12px; margin-top: 8px; font-size: 0.84rem; color: #1E293B; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <div>
+                        🦷 <strong>Plano Odontológico (Uniodonto):</strong>
+                        <span style="color: #0369A1; font-weight: 600;">{uniodonto_grupo['vidas']} vida(s)</span>
+                        <span style="color: #64748B;">({formatar_moeda(uniodonto_grupo['valor_por_vida'])}/vida)</span>
+                    </div>
+                    <div>
+                        <span style="color: #64748B; font-size: 0.80rem;">Mensalidade Odonto:</span>
+                        <strong style="color: #0F172A; font-size: 0.90rem;">{formatar_moeda(uniodonto_grupo['valor_total'])}</strong>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                st.info("🦷 **Plano Odontológico (Uniodonto Campinas):** Não contratado para este grupo familiar.")
+                st.markdown("""
+                <div style="color: #94A3B8; font-size: 0.80rem; margin-top: 6px;">
+                    🦷 <em>Plano Odontológico (Uniodonto): Não contratado para este grupo.</em>
+                </div>
+                """, unsafe_allow_html=True)
 
         tab_nova, tab_historico = st.tabs(["📝 Nova Solicitação", "📄 Histórico e Downloads"])
 
@@ -610,57 +620,57 @@ if modulo == "🏠 Área do Associado":
 
             st.markdown("---")
 
-            valor_total = st.number_input(
-                "💰 Valor Total Declarado (R$)",
-                value=float(valor_soma),
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                help="Calculado automaticamente pela soma dos selecionados. Ajuste manualmente se necessário.",
-            )
-
-            # Campo do Plano Odontológico (Uniodonto Campinas) e Montante de Transferência
-            uniodonto_tit = obter_uniodonto_titular(titular_logado)
-            if uniodonto_tit:
-                vidas_odonto = uniodonto_tit["vidas"]
-                valor_odonto = uniodonto_tit["valor_total"]
-                valor_por_vida = uniodonto_tit["valor_por_vida"]
-                st.text_input(
-                    "🦷 Plano Odontológico (Uniodonto Campinas)",
-                    value=f"{vidas_odonto} vida(s) coberta(s) — {formatar_moeda(valor_odonto)} ({formatar_moeda(valor_por_vida)}/vida)",
-                    disabled=True,
-                    help="Plano odontológico Uniodonto contratado junto à ANSEF Campinas.",
+            # Campos de valores lado a lado (proporcionais e harmoniosos)
+            col_tot_unimed, col_tot_odonto = st.columns(2)
+            with col_tot_unimed:
+                valor_total = st.number_input(
+                    "💰 Valor Total Declarado — UNIMED (R$)",
+                    value=float(valor_soma),
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    help="Calculado pela soma dos selecionados. Constará na Declaração de Pagamento oficial da Unimed.",
                 )
 
+            with col_tot_odonto:
+                uniodonto_tit = obter_uniodonto_titular(titular_logado)
+                if uniodonto_tit:
+                    vidas_odonto = uniodonto_tit["vidas"]
+                    valor_odonto = uniodonto_tit["valor_total"]
+                    valor_por_vida = uniodonto_tit["valor_por_vida"]
+                    st.text_input(
+                        "🦷 Plano Odontológico — UNIODONTO",
+                        value=f"{formatar_moeda(valor_odonto)} ({vidas_odonto} vidas)",
+                        disabled=True,
+                        help=f"Plano Odontológico: {vidas_odonto} vida(s) x {formatar_moeda(valor_por_vida)}. Faturado via ANSEF (não entra na declaração Unimed).",
+                    )
+                else:
+                    valor_odonto = 0.0
+                    vidas_odonto = 0
+                    st.text_input(
+                        "🦷 Plano Odontológico — UNIODONTO",
+                        value="Não contratado (R$ 0,00)",
+                        disabled=True,
+                        help="Este grupo familiar não possui plano odontológico.",
+                    )
+
+            if uniodonto_tit and valor_odonto > 0:
                 montante_transferencia = valor_total + valor_odonto
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 100%); color: #FFFFFF; border-radius: 10px; padding: 14px 18px; margin: 12px 0 16px 0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                        <div>
-                            <span style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9;">💳 Montante Total para Transferência / PIX (ANSEF Campinas)</span>
-                            <div style="font-size: 1.55rem; font-weight: 700; margin-top: 2px;">{formatar_moeda(montante_transferencia)}</div>
-                            <div style="font-size: 0.84rem; opacity: 0.9; margin-top: 2px;">
-                                UNIMED Saúde: <strong>{formatar_moeda(valor_total)}</strong> + UNIODONTO ({vidas_odonto} vidas): <strong>{formatar_moeda(valor_odonto)}</strong>
-                            </div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.18); border-radius: 8px; padding: 6px 12px; text-align: right;">
-                            <small style="display: block; font-size: 0.72rem; opacity: 0.9;">Chave Pix (CNPJ):</small>
-                            <span style="color: #FFFFFF; font-weight: 700; font-size: 0.9rem;">19.010.380/0001-73</span>
-                        </div>
+                <div style="background-color: #F8FAFC; border: 1px solid #CBD5E1; border-left: 4px solid #1E40AF; border-radius: 6px; padding: 8px 12px; margin: 4px 0 10px 0; font-size: 0.86rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        💳 <strong>Total p/ Transferência / PIX:</strong>
+                        <span style="font-size: 1.05rem; font-weight: 700; color: #1E3A8A; margin-left: 4px;">{formatar_moeda(montante_transferencia)}</span>
+                        <span style="color: #64748B; font-size: 0.80rem; margin-left: 4px;">(Unimed: {formatar_moeda(valor_total)} + Odonto: {formatar_moeda(valor_odonto)})</span>
                     </div>
-                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.25); font-size: 0.80rem; opacity: 0.95;">
-                        ⏰ <strong>Vencimento:</strong> O pagamento efetuado pela ANSEF é realizado <strong>todo dia 10 do respectivo mês</strong> (ou dia útil subsequente). O depósito deve ser feito em tempo hábil para que haja saldo na conta da Associação.<br>
-                        ℹ️ <strong>Declaração Oficial:</strong> A Declaração de Pagamento da UNIMED que será emitida conterá <strong>estritamente o valor de saúde ({formatar_moeda(valor_total)})</strong>.
+                    <div style="font-size: 0.80rem; color: #334155;">
+                        Chave Pix: <strong>19.010.380/0001-73</strong>
                     </div>
                 </div>
+                <div style="font-size: 0.78rem; color: #64748B; margin: -6px 0 10px 4px;">
+                    ℹ️ <em>Apenas o valor da UNIMED ({formatar_moeda(valor_total)}) constará na Declaração emitida. Vencimento na ANSEF: dia 10.</em>
+                </div>
                 """, unsafe_allow_html=True)
-            else:
-                st.text_input(
-                    "🦷 Plano Odontológico (Uniodonto Campinas)",
-                    value="Nenhuma vida vinculada neste grupo (R$ 0,00)",
-                    disabled=True,
-                    help="Este grupo familiar não possui plano odontológico Uniodonto.",
-                )
 
             st.markdown("")
 
