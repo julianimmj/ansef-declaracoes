@@ -486,6 +486,12 @@ if modulo == "🏠 Área do Associado":
                 st.code("19.010.380/0001-73", language="text")
                 st.caption("Utilize a chave Pix acima para realizar o pagamento mensal à ANSEF Campinas.")
 
+            st.markdown("""
+            <div style="background-color: #FEF3C7; border-left: 4px solid #D97706; padding: 10px 14px; border-radius: 6px; margin-top: 10px; font-size: 0.90rem; color: #92400E;">
+                ⏰ <strong>Observação Importante sobre Vencimento:</strong> O pagamento efetuado pela ANSEF é realizado <strong>todo dia 10 do respectivo mês</strong> (ou dia útil subsequente). O depósito/transferência deve ser feito em <strong>tempo hábil</strong> para que haja saldo disponível na conta da Associação.
+            </div>
+            """, unsafe_allow_html=True)
+
         # Resumo dos integrantes e valores vigentes
         with st.expander("👥 Integrantes do Grupo e Valores Vigentes por Faixa Etária", expanded=False):
             dados_tabela = []
@@ -643,7 +649,8 @@ if modulo == "🏠 Área do Associado":
                         </div>
                     </div>
                     <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.25); font-size: 0.80rem; opacity: 0.95;">
-                        ℹ️ <strong>Lembrete importante:</strong> O valor da UNIODONTO é somado exclusivamente para facilitar sua transferência para a ANSEF. A <strong>Declaração de Pagamento da UNIMED</strong> que será emitida conterá <strong>estritamente o valor de saúde ({formatar_moeda(valor_total)})</strong>.
+                        ⏰ <strong>Vencimento:</strong> O pagamento efetuado pela ANSEF é realizado <strong>todo dia 10 do respectivo mês</strong> (ou dia útil subsequente). O depósito deve ser feito em tempo hábil para que haja saldo na conta da Associação.<br>
+                        ℹ️ <strong>Declaração Oficial:</strong> A Declaração de Pagamento da UNIMED que será emitida conterá <strong>estritamente o valor de saúde ({formatar_moeda(valor_total)})</strong>.
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
