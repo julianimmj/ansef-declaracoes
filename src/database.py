@@ -768,3 +768,247 @@ def contar_aprovadas_mes_atual() -> int:
               AND strftime('%Y-%m', data_analise) = ?
         """, (agora.strftime("%Y-%m"),)).fetchone()
         return row["total"] if row else 0
+
+
+# ─── GESTÃO DE INTEGRANTES E GRUPOS FAMILIARES (CRUD ADMIN) ───────────────────
+
+def adicionar_titular(
+    nome: str,
+    data_nascimento: str | date,
+    cpf: str = "",
+    tipo_plano: str = "C",
+) -> tuple[bool, str, Optional[int]]:
+    """
+    Cadastra um novo titular (criando um novo grupo familiar).
+    Calcula a idade, enquadra na faixa etária e define a mensalidade automaticamente.
+    Sincroniza com data/integrantes.csv.
+    """
+    nome_limpo = nome.strip()
+    if not nome_limpo:
+        return False, "Nome do titular é obrigatório.", None
+
+    tipo_plano_norm = (tipo_plano or "C").strip().upper()
+    if tipo_plano_norm not in ("P", "C"):
+        tipo_plano_norm = "C"
+
+    # Converte data de nascimento para ISO YYYY-MM-DD
+    if isinstance(data_nascimento, date):
+        data_iso = data_nascimento.strftime("%Y-%m-%d")
+    else:
+        dt_str = str(data_nascimento).strip()
+        if "/" in dt_str:
+            try:
+                data_iso = datetime.strptime(dt_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+            except Exception:
+                return False, "Data de nascimento inválida (use o formato DD/MM/AAAA).", None
+        else:
+            data_iso = dt_str
+
+    idade = calcular_idade(data_iso)
+    if idade is None:
+        return False, "Não foi possível calcular a idade a partir da data informada.", None
+
+    faixa = determinar_faixa_etaria(idade)
+    if not faixa:
+        return False, f"Nenhuma faixa etária cadastrada para a idade de {idade} anos.", None
+
+    valor_mensal = faixa["valor_privativo"] if tipo_plano_norm == "P" else faixa["valor_coletivo"]
+
+    # Higieniza CPF
+    import re
+    cpf_limpo = re.sub(r"\D", "", str(cpf))
+
+    with get_connection() as conn:
+        # Verifica duplicidade de nome
+        existe = conn.execute(
+            "SELECT id FROM membros WHERE LOWER(beneficiario_nome) = LOWER(?)",
+            (nome_limpo,)
+        ).fetchone()
+        if existe:
+            return False, f"Já existe um integrante cadastrado com o nome '{nome_limpo}'.", None
+
+        cursor = conn.execute("""
+            INSERT INTO membros (
+                tipo, titular_nome, beneficiario_nome, grau_parentesco,
+                data_nascimento, cpf, faixa_etaria, tipo_plano, valor_mensalidade
+            ) VALUES ('TITULAR', ?, ?, 'Titular', ?, ?, ?, ?, ?)
+        """, (
+            nome_limpo,
+            nome_limpo,
+            data_iso,
+            cpf_limpo,
+            faixa["faixa_etaria"],
+            tipo_plano_norm,
+            valor_mensal,
+        ))
+        novo_id = cursor.lastrowid
+        _sincronizar_csv_com_banco(conn)
+
+    msg_sucesso = (
+        f"Titular {nome_limpo} cadastrado com sucesso! "
+        f"Idade: {idade} anos | Faixa: {faixa['faixa_etaria']} | "
+        f"Plano: {'Privativo' if tipo_plano_norm == 'P' else 'Coletivo'} | "
+        f"Valor: R$ {valor_mensal:.2f}"
+    )
+    return True, msg_sucesso, novo_id
+
+
+def adicionar_dependente(
+    titular_nome: str,
+    nome: str,
+    grau_parentesco: str,
+    data_nascimento: str | date,
+    cpf: str = "",
+) -> tuple[bool, str, Optional[int]]:
+    """
+    Adiciona um dependente ou agregado a um grupo familiar existente.
+    Herda o tipo de plano do titular, enquadra automaticamente na faixa e mensalidade.
+    Sincroniza com data/integrantes.csv.
+    """
+    titular_limpo = titular_nome.strip()
+    nome_limpo = nome.strip()
+    grau_limpo = grau_parentesco.strip() or "Dependente"
+
+    if not titular_limpo:
+        return False, "Selecione o titular responsável pelo grupo.", None
+    if not nome_limpo:
+        return False, "Nome do dependente é obrigatório.", None
+
+    with get_connection() as conn:
+        # Busca o titular para herdar o tipo de plano
+        titular_row = conn.execute(
+            "SELECT tipo_plano FROM membros WHERE titular_nome = ? AND UPPER(tipo) = 'TITULAR' LIMIT 1",
+            (titular_limpo,)
+        ).fetchone()
+
+        if not titular_row:
+            return False, f"Titular '{titular_limpo}' não encontrado no cadastro.", None
+
+        tipo_plano = titular_row["tipo_plano"] or "C"
+
+        # Verifica duplicidade
+        existe = conn.execute(
+            "SELECT id FROM membros WHERE LOWER(beneficiario_nome) = LOWER(?)",
+            (nome_limpo,)
+        ).fetchone()
+        if existe:
+            return False, f"Já existe um integrante cadastrado com o nome '{nome_limpo}'.", None
+
+    # Converte data de nascimento
+    if isinstance(data_nascimento, date):
+        data_iso = data_nascimento.strftime("%Y-%m-%d")
+    else:
+        dt_str = str(data_nascimento).strip()
+        if "/" in dt_str:
+            try:
+                data_iso = datetime.strptime(dt_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+            except Exception:
+                return False, "Data de nascimento inválida (use o formato DD/MM/AAAA).", None
+        else:
+            data_iso = dt_str
+
+    idade = calcular_idade(data_iso)
+    if idade is None:
+        return False, "Não foi possível calcular a idade a partir da data informada.", None
+
+    faixa = determinar_faixa_etaria(idade)
+    if not faixa:
+        return False, f"Nenhuma faixa etária cadastrada para a idade de {idade} anos.", None
+
+    valor_mensal = faixa["valor_privativo"] if tipo_plano.upper() == "P" else faixa["valor_coletivo"]
+
+    # Classificação
+    tipo_membro = "AGREGADO" if "agregado" in grau_limpo.lower() else "DEPENDENTE"
+
+    import re
+    cpf_limpo = re.sub(r"\D", "", str(cpf))
+
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            INSERT INTO membros (
+                tipo, titular_nome, beneficiario_nome, grau_parentesco,
+                data_nascimento, cpf, faixa_etaria, tipo_plano, valor_mensalidade
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            tipo_membro,
+            titular_limpo,
+            nome_limpo,
+            grau_limpo,
+            data_iso,
+            cpf_limpo,
+            faixa["faixa_etaria"],
+            tipo_plano,
+            valor_mensal,
+        ))
+        novo_id = cursor.lastrowid
+        _sincronizar_csv_com_banco(conn)
+
+    msg_sucesso = (
+        f"{tipo_membro.capitalize()} {nome_limpo} ({grau_limpo}) incluído(a) no grupo de {titular_limpo}! "
+        f"Idade: {idade} anos | Faixa: {faixa['faixa_etaria']} | Valor: R$ {valor_mensal:.2f}"
+    )
+    return True, msg_sucesso, novo_id
+
+
+def excluir_membro(membro_id: int) -> tuple[bool, str]:
+    """
+    Exclui um dependente/agregado específico do sistema pelo ID.
+    Se for um titular, orienta a exclusão do grupo inteiro ou executa a exclusão.
+    Sincroniza com data/integrantes.csv.
+    """
+    with get_connection() as conn:
+        membro = conn.execute(
+            "SELECT id, tipo, titular_nome, beneficiario_nome FROM membros WHERE id = ?",
+            (membro_id,)
+        ).fetchone()
+
+        if not membro:
+            return False, "Integrante não encontrado no banco de dados."
+
+        nome = membro["beneficiario_nome"]
+        tipo = membro["tipo"].upper()
+        titular = membro["titular_nome"]
+
+        if tipo == "TITULAR":
+            # Conta se há dependentes vinculados
+            deps_count = conn.execute(
+                "SELECT COUNT(*) FROM membros WHERE titular_nome = ? AND id != ?",
+                (titular, membro_id)
+            ).fetchone()[0]
+
+            if deps_count > 0:
+                return False, f"O titular '{nome}' possui {deps_count} dependente(s) vinculado(s). Utilize a opção 'Excluir Grupo Familiar Completo' para remover o titular e seus dependentes."
+
+        conn.execute("DELETE FROM membros WHERE id = ?", (membro_id,))
+        conn.execute("DELETE FROM config_valores WHERE beneficiario_nome = ?", (nome,))
+        _sincronizar_csv_com_banco(conn)
+
+    return True, f"Integrante '{nome}' removido com sucesso do sistema."
+
+
+def excluir_grupo_familiar(titular_nome: str) -> tuple[bool, str, int]:
+    """
+    Exclui um titular e TODOS os seus dependentes/agregados vinculados.
+    Sincroniza com data/integrantes.csv.
+    """
+    titular_limpo = titular_nome.strip()
+    with get_connection() as conn:
+        membros = conn.execute(
+            "SELECT id, beneficiario_nome FROM membros WHERE titular_nome = ?",
+            (titular_limpo,)
+        ).fetchall()
+
+        if not membros:
+            return False, f"Nenhum integrante encontrado para o titular '{titular_limpo}'.", 0
+
+        total = len(membros)
+        nomes = [m["beneficiario_nome"] for m in membros]
+
+        conn.execute("DELETE FROM membros WHERE titular_nome = ?", (titular_limpo,))
+        for n in nomes:
+            conn.execute("DELETE FROM config_valores WHERE beneficiario_nome = ?", (n,))
+
+        _sincronizar_csv_com_banco(conn)
+
+    return True, f"Grupo familiar de '{titular_limpo}' ({total} integrante(s)) excluído com sucesso.", total
+

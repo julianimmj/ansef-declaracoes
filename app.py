@@ -44,6 +44,12 @@ from src.database import (
     recalcular_mensalidades_membros,
     verificar_migracoes_grupo,
     listar_todas_migracoes,
+    calcular_idade,
+    determinar_faixa_etaria,
+    adicionar_titular,
+    adicionar_dependente,
+    excluir_membro,
+    excluir_grupo_familiar,
 )
 from src.auth import (
     login_associado,
@@ -709,10 +715,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     ])
                     st.dataframe(df_migs, use_container_width=True, hide_index=True)
 
-        tab_pend, tab_aprovadas, tab_reajuste, tab_relatorio, tab_config_email = st.tabs([
+        tab_pend, tab_aprovadas, tab_reajuste, tab_gestao_grupos, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "📄 Declarações Aprovadas",
             "💰 Tabela de Preços e Reajustes",
+            "👥 Gestão de Integrantes & Grupos",
             "📊 Histórico Geral",
             "⚙️ Configuração de E-mail",
         ])
@@ -1126,7 +1133,228 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                     )
                                     st.rerun()
 
-        # ── ABA 3: HISTÓRICO GERAL ──────────────────────────────────────────
+        # ── ABA 4: GESTÃO DE INTEGRANTES E GRUPOS FAMILIARES ────────────────
+        with tab_gestao_grupos:
+            st.markdown("#### 👥 Gestão de Integrantes e Grupos Familiares")
+            st.caption(
+                "Cadastre novos titulares, adicione dependentes com enquadramento automático na tabela de preços oficial, "
+                "ou gerencie e exclua integrantes e grupos familiares existentes."
+            )
+
+            subtab_cad_titular, subtab_cad_dependente, subtab_gerenciar_grupos = st.tabs([
+                "➕ Novo Titular (Criar Grupo)",
+                "➕ Adicionar Dependente",
+                "📋 Gerenciar / Excluir Grupos e Integrantes",
+            ])
+
+            # ── SUB-ABA 1: NOVO TITULAR ─────────────────────────────────────
+            with subtab_cad_titular:
+                st.markdown("##### ➕ Cadastro de Novo Titular")
+                st.info("O titular é o responsável pelo grupo familiar. A idade e a mensalidade são enquadradas automaticamente pela data de nascimento.")
+
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    novo_tit_nome = st.text_input("Nome Completo do Titular *", placeholder="Ex: João da Silva", key="cad_tit_nome")
+                    novo_tit_cpf = st.text_input("CPF do Titular", placeholder="000.000.000-00", max_chars=14, key="cad_tit_cpf")
+
+                with col_t2:
+                    novo_tit_nasc = st.date_input(
+                        "Data de Nascimento *",
+                        value=None,
+                        min_value=date(1910, 1, 1),
+                        max_value=date.today(),
+                        format="DD/MM/YYYY",
+                        key="cad_tit_nasc",
+                    )
+                    novo_tit_plano = st.selectbox(
+                        "Modalidade do Plano *",
+                        ["Plano Coletivo (C)", "Plano Privativo (P)"],
+                        index=0,
+                        key="cad_tit_plano",
+                    )
+
+                sigla_novo_plano = "P" if "Privativo" in novo_tit_plano else "C"
+
+                # Prévia do Enquadramento em Tempo Real
+                if novo_tit_nasc:
+                    idade_prev = calcular_idade(novo_tit_nasc)
+                    fx_prev = determinar_faixa_etaria(idade_prev)
+                    if fx_prev:
+                        val_prev = fx_prev["valor_privativo"] if sigla_novo_plano == "P" else fx_prev["valor_coletivo"]
+                        st.markdown(f"""
+                        <div style="background:#EBF8FF;border-left:4px solid #0284C7;padding:10px 14px;border-radius:6px;margin:12px 0;">
+                            <strong>🔍 Enquadramento Automático em Tempo Real:</strong><br>
+                            • Idade Calculada: <strong>{idade_prev} anos</strong><br>
+                            • Faixa Etária: <strong>{fx_prev['faixa_etaria']}</strong><br>
+                            • Mensalidade Prevista: <strong style="color:#0284C7;">{formatar_moeda(val_prev)}</strong> ({novo_tit_plano})
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                if st.button("Cadastrar Novo Titular", type="primary", use_container_width=True, key="btn_cad_novo_titular"):
+                    if not novo_tit_nome.strip():
+                        st.error("Informe o nome completo do titular.")
+                    elif not novo_tit_nasc:
+                        st.error("Informe a data de nascimento do titular.")
+                    else:
+                        sucesso_tit, msg_tit, n_id = adicionar_titular(
+                            nome=novo_tit_nome,
+                            data_nascimento=novo_tit_nasc,
+                            cpf=novo_tit_cpf,
+                            tipo_plano=sigla_novo_plano,
+                        )
+                        if sucesso_tit:
+                            st.success(f"✅ {msg_tit}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg_tit}")
+
+            # ── SUB-ABA 2: ADICIONAR DEPENDENTE ─────────────────────────────
+            with subtab_cad_dependente:
+                st.markdown("##### ➕ Inclusão de Dependente ou Agregado")
+                titulares_atuais = listar_titulares()
+                if not titulares_atuais:
+                    st.warning("Nenhum titular cadastrado no sistema.")
+                else:
+                    nomes_tits = [t["titular_nome"] for t in titulares_atuais]
+                    tit_selecionado = st.selectbox(
+                        "Selecione o Titular Responsável *",
+                        options=nomes_tits,
+                        key="cad_dep_titular_sel",
+                    )
+
+                    grupo_tit = buscar_grupo_familiar(tit_selecionado)
+                    plano_tit_nome = grupo_tit[0].get("tipo_plano_nome", "Coletivo") if grupo_tit else "Coletivo"
+                    sigla_plano_tit = (grupo_tit[0].get("tipo_plano") or "C").upper() if grupo_tit else "C"
+
+                    st.caption(f"Modalidade herdada do titular: **Plano {plano_tit_nome} ({sigla_plano_tit})**")
+
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        dep_nome = st.text_input("Nome Completo do Dependente *", placeholder="Ex: Maria da Silva", key="cad_dep_nome")
+                        dep_parentesco = st.selectbox(
+                            "Grau de Parentesco *",
+                            ["Cônjuge", "Filho(a)", "Pai/Mãe", "Sogro(a)", "Agregado(a)", "Outro"],
+                            key="cad_dep_parentesco",
+                        )
+
+                    with col_d2:
+                        dep_nasc = st.date_input(
+                            "Data de Nascimento *",
+                            value=None,
+                            min_value=date(1910, 1, 1),
+                            max_value=date.today(),
+                            format="DD/MM/YYYY",
+                            key="cad_dep_nasc",
+                        )
+                        dep_cpf = st.text_input("CPF do Dependente", placeholder="000.000.000-00", max_chars=14, key="cad_dep_cpf")
+
+                    # Prévia do Enquadramento
+                    if dep_nasc:
+                        idade_dep_prev = calcular_idade(dep_nasc)
+                        fx_dep_prev = determinar_faixa_etaria(idade_dep_prev)
+                        if fx_dep_prev:
+                            val_dep_prev = fx_dep_prev["valor_privativo"] if sigla_plano_tit == "P" else fx_dep_prev["valor_coletivo"]
+                            st.markdown(f"""
+                            <div style="background:#EBF8FF;border-left:4px solid #0284C7;padding:10px 14px;border-radius:6px;margin:12px 0;">
+                                <strong>🔍 Enquadramento Automático em Tempo Real:</strong><br>
+                                • Idade Calculada: <strong>{idade_dep_prev} anos</strong><br>
+                                • Faixa Etária: <strong>{fx_dep_prev['faixa_etaria']}</strong><br>
+                                • Mensalidade: <strong style="color:#0284C7;">{formatar_moeda(val_dep_prev)}</strong> (Plano {plano_tit_nome})
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    if st.button("Adicionar Dependente ao Grupo", type="primary", use_container_width=True, key="btn_cad_novo_dependente"):
+                        if not dep_nome.strip():
+                            st.error("Informe o nome completo do dependente.")
+                        elif not dep_nasc:
+                            st.error("Informe a data de nascimento do dependente.")
+                        else:
+                            sucesso_dep, msg_dep, d_id = adicionar_dependente(
+                                titular_nome=tit_selecionado,
+                                nome=dep_nome,
+                                grau_parentesco=dep_parentesco,
+                                data_nascimento=dep_nasc,
+                                cpf=dep_cpf,
+                            )
+                            if sucesso_dep:
+                                st.success(f"✅ {msg_dep}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_dep}")
+
+            # ── SUB-ABA 3: GERENCIAR E EXCLUIR GRUPOS E INTEGRANTES ──────────
+            with subtab_gerenciar_grupos:
+                st.markdown("##### 📋 Grupos Familiares e Integrantes Cadastrados")
+                busca_grupo = st.text_input("🔍 Filtrar grupo por nome do titular ou dependente:", placeholder="Digite para filtrar...", key="busca_gestao_grupos")
+
+                titulares_todos = listar_titulares()
+                if not titulares_todos:
+                    st.info("Nenhum titular cadastrado.")
+                else:
+                    for idx_tit, t_info in enumerate(titulares_todos):
+                        t_nome = t_info["titular_nome"]
+                        grupo_membros = buscar_grupo_familiar(t_nome)
+
+                        if busca_grupo:
+                            termo = busca_grupo.lower()
+                            nomes_grupo = [m["beneficiario_nome"].lower() for m in grupo_membros]
+                            if not any(termo in n for n in nomes_grupo) and termo not in t_nome.lower():
+                                continue
+
+                        plano_tipo = grupo_membros[0].get("tipo_plano_nome", "Coletivo") if grupo_membros else "Coletivo"
+                        total_vidas = len(grupo_membros)
+                        soma_mensal = sum(m.get("valor_vigente", 0.0) for m in grupo_membros)
+
+                        with st.expander(
+                            f"👤 {t_nome} — Plano {plano_tipo} ({total_vidas} vida(s) — Total: {formatar_moeda(soma_mensal)})",
+                            expanded=False,
+                        ):
+                            col_info_g, col_del_g = st.columns([3, 1.2])
+                            with col_info_g:
+                                st.caption(f"Modalidade: **Plano {plano_tipo}** | Total do Grupo: **{formatar_moeda(soma_mensal)}/mês**")
+                            with col_del_g:
+                                with st.popover("🚨 Excluir Grupo Completo", use_container_width=True):
+                                    st.error(f"Deseja realmente excluir **{t_nome}** e todos os seus {total_vidas} integrantes?")
+                                    st.caption("Esta ação removerá o titular e todos os dependentes associados.")
+                                    if st.button("Sim, Excluir Grupo Inteiro", type="primary", key=f"btn_del_grupo_{idx_tit}", use_container_width=True):
+                                        ok_g, msg_g, tot_g = excluir_grupo_familiar(t_nome)
+                                        if ok_g:
+                                            st.success(f"✅ {msg_g}")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ {msg_g}")
+
+                            st.markdown("---")
+                            st.markdown("**Integrantes do Grupo:**")
+
+                            for m in grupo_membros:
+                                c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns([3, 1.5, 2, 1.8, 1.2])
+                                is_tit = m["tipo"].upper() == "TITULAR"
+                                with c_m1:
+                                    tag_papel = "👑 **Titular**" if is_tit else f"👤 {m['grau_parentesco']}"
+                                    st.markdown(f"**{m['beneficiario_nome']}**<br><small>{tag_papel}</small>", unsafe_allow_html=True)
+                                with c_m2:
+                                    st.markdown(f"{m.get('idade_atual', '-')} anos")
+                                with c_m3:
+                                    st.markdown(f"{m.get('faixa_calculada', '-')}")
+                                with c_m4:
+                                    st.markdown(f"**{formatar_moeda(m.get('valor_vigente', 0.0))}**")
+                                with c_m5:
+                                    if not is_tit:
+                                        with st.popover("🗑️ Excluir", use_container_width=True):
+                                            st.warning(f"Remover {m['beneficiario_nome']}?")
+                                            if st.button("Confirmar", key=f"del_dep_{m['id']}", type="primary", use_container_width=True):
+                                                ok_d, msg_d = excluir_membro(m["id"])
+                                                if ok_d:
+                                                    st.toast(f"✅ {msg_d}")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(msg_d)
+                                    else:
+                                        st.caption("(Titular)")
+                                st.markdown("<div style='border-bottom: 1px dashed #eee; margin: 4px 0;'></div>", unsafe_allow_html=True)
+
+        # ── ABA 5: HISTÓRICO GERAL ──────────────────────────────────────────
         with tab_relatorio:
             st.markdown("#### 📊 Histórico Geral de Declarações")
 
