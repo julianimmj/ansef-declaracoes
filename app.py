@@ -272,11 +272,12 @@ if modulo == "🏠 Área do Associado":
             for i, membro in enumerate(grupo):
                 col_check, col_nome, col_parent, col_valor = st.columns([0.5, 3, 2, 2])
 
+                m_id = membro.get("id", i)
                 with col_check:
                     checked = st.checkbox(
                         "Incluir",
                         value=True,
-                        key=f"check_{i}",
+                        key=f"check_m_{m_id}_{i}",
                         label_visibility="collapsed",
                     )
 
@@ -294,7 +295,7 @@ if modulo == "🏠 Área do Associado":
                         min_value=0.0,
                         step=0.01,
                         format="%.2f",
-                        key=f"valor_{i}",
+                        key=f"valor_m_{m_id}_{i}",
                         label_visibility="collapsed",
                     )
 
@@ -422,6 +423,7 @@ if modulo == "🏠 Área do Associado":
                                 mime="application/pdf",
                                 type="primary",
                                 use_container_width=True,
+                                key=f"dl_pdf_assoc_{sol['id']}",
                             )
 
                         if status == "REJEITADO" and sol.get("observacoes_admin"):
@@ -809,6 +811,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             file_name="relatorio_ansef_declaracoes.csv",
                             mime="text/csv",
                             use_container_width=True,
+                            key="btn_export_csv",
                         )
                     with col_exp2:
                         buffer = io.BytesIO()
@@ -820,6 +823,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             file_name="relatorio_ansef_declaracoes.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True,
+                            key="btn_export_excel",
                         )
                 else:
                     st.info("Nenhuma solicitação encontrada com os filtros aplicados.")
