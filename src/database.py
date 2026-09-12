@@ -51,6 +51,104 @@ def get_connection():
         conn.close()
 
 
+def padronizar_nome(nome: str) -> str:
+    """
+    Padroniza um nome próprio para Title Case profissional em português:
+    - Preposições e conjunções em minúsculas (de, da, do, das, dos, e, d.).
+    - Iniciais e abreviações com ponto mantidas em maiúsculas (ex: P., S., R., Jr.).
+    - Remove espaços duplicados e trata strings vazias.
+    """
+    if not nome or not isinstance(nome, str):
+        return ""
+
+    minusculas = {"de", "da", "do", "das", "dos", "e", "d."}
+    partes = nome.strip().split()
+    partes_formatadas = []
+
+    for i, p in enumerate(partes):
+        p_clean = p.strip()
+        if not p_clean:
+            continue
+
+        if i > 0 and p_clean.lower() in minusculas:
+            partes_formatadas.append(p_clean.lower())
+        elif len(p_clean) <= 2 and p_clean.endswith("."):
+            partes_formatadas.append(p_clean.upper())
+        elif p_clean.lower() in ["jr.", "jr"]:
+            partes_formatadas.append("Jr." if "." in p_clean else "Jr")
+        elif p_clean.lower() in ["filho", "filha", "neto", "neta", "sobrinho", "sobrinha"]:
+            partes_formatadas.append(p_clean.capitalize())
+        else:
+            partes_formatadas.append(p_clean.capitalize())
+
+    return " ".join(partes_formatadas)
+
+
+def padronizar_todos_nomes_banco(conn) -> None:
+    """
+    Varre e padroniza todos os nomes em membros, solicitacoes,
+    uniodonto_titulares e config_valores no padrão Title Case limpo.
+    """
+    try:
+        # 1. Membros
+        membros = conn.execute("SELECT id, titular_nome, beneficiario_nome FROM membros").fetchall()
+        for m in membros:
+            n_tit = padronizar_nome(m["titular_nome"])
+            n_ben = padronizar_nome(m["beneficiario_nome"])
+            if n_tit != m["titular_nome"] or n_ben != m["beneficiario_nome"]:
+                conn.execute(
+                    "UPDATE membros SET titular_nome = ?, beneficiario_nome = ? WHERE id = ?",
+                    (n_tit, n_ben, m["id"])
+                )
+
+        # 2. Uniodonto
+        unio = conn.execute("SELECT id, titular_nome FROM uniodonto_titulares").fetchall()
+        for u in unio:
+            n_tit = padronizar_nome(u["titular_nome"])
+            if n_tit != u["titular_nome"]:
+                conn.execute(
+                    "UPDATE uniodonto_titulares SET titular_nome = ? WHERE id = ?",
+                    (n_tit, u["id"])
+                )
+
+        # 3. Config Valores
+        cfgs = conn.execute("SELECT id, beneficiario_nome FROM config_valores").fetchall()
+        for c in cfgs:
+            n_ben = padronizar_nome(c["beneficiario_nome"])
+            if n_ben != c["beneficiario_nome"]:
+                conn.execute(
+                    "UPDATE config_valores SET beneficiario_nome = ? WHERE id = ?",
+                    (n_ben, c["id"])
+                )
+
+        # 4. Solicitações
+        sols = conn.execute("SELECT id, titular_nome, dependentes_incluidos FROM solicitacoes").fetchall()
+        for s in sols:
+            n_tit = padronizar_nome(s["titular_nome"])
+            deps_raw = s["dependentes_incluidos"] or "[]"
+            changed = False
+            try:
+                deps = json.loads(deps_raw)
+                for d in deps:
+                    if "nome" in d:
+                        n_d = padronizar_nome(d["nome"])
+                        if n_d != d["nome"]:
+                            d["nome"] = n_d
+                            changed = True
+                novo_deps_raw = json.dumps(deps, ensure_ascii=False) if changed else deps_raw
+            except Exception:
+                novo_deps_raw = deps_raw
+                changed = False
+
+            if n_tit != s["titular_nome"] or changed:
+                conn.execute(
+                    "UPDATE solicitacoes SET titular_nome = ?, dependentes_incluidos = ? WHERE id = ?",
+                    (n_tit, novo_deps_raw, s["id"])
+                )
+    except Exception as e:
+        logger.warning(f"Aviso ao padronizar nomes no banco: {e}")
+
+
 def inicializar_banco():
     """Cria as tabelas, carrega os dados iniciais e atualiza mensalidades com a tabela de faixas."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -169,6 +267,9 @@ def inicializar_banco():
                 SET titular_nome = 'José Luis Cordeiro Marcheori'
                 WHERE titular_nome = 'José Luis Cordeiro Marceori'
             """)
+
+        # Padroniza todos os nomes para Title Case profissional
+        padronizar_todos_nomes_banco(conn)
 
         # Recalcula mensalidades com base na tabela de faixas etárias e idade
         recalcular_mensalidades_membros(conn)
@@ -1060,7 +1161,7 @@ def adicionar_titular(
     Calcula a idade, enquadra na faixa etária e define a mensalidade automaticamente.
     Sincroniza com data/integrantes.csv.
     """
-    nome_limpo = nome.strip()
+    nome_limpo = padronizar_nome(nome)
     if not nome_limpo:
         return False, "Nome do titular é obrigatório.", None
 
@@ -1142,9 +1243,9 @@ def adicionar_dependente(
     Herda o tipo de plano do titular, enquadra automaticamente na faixa e mensalidade.
     Sincroniza com data/integrantes.csv.
     """
-    titular_limpo = titular_nome.strip()
-    nome_limpo = nome.strip()
-    grau_limpo = grau_parentesco.strip() or "Dependente"
+    titular_limpo = padronizar_nome(titular_nome)
+    nome_limpo = padronizar_nome(nome)
+    grau_limpo = padronizar_nome(grau_parentesco) or "Dependente"
 
     if not titular_limpo:
         return False, "Selecione o titular responsável pelo grupo.", None
@@ -1331,7 +1432,7 @@ def obter_uniodonto_titular(titular_nome: str) -> dict | None:
     """
     cfg = obter_config_uniodonto()
     valor_por_vida = cfg["valor_por_vida"]
-    titular_limpo = titular_nome.strip()
+    titular_limpo = padronizar_nome(titular_nome)
 
     with get_connection() as conn:
         row = conn.execute(
@@ -1376,7 +1477,7 @@ def listar_todos_uniodonto() -> list[dict]:
 
 def salvar_uniodonto_titular(titular_nome: str, vidas: int) -> tuple[bool, str]:
     """Inclui ou atualiza o titular no plano Uniodonto com o número de vidas informadas."""
-    titular_limpo = titular_nome.strip()
+    titular_limpo = padronizar_nome(titular_nome)
     if not titular_limpo:
         return False, "Nome do titular é obrigatório."
     if vidas <= 0:

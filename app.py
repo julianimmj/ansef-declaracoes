@@ -324,6 +324,138 @@ st.markdown("""
             margin-bottom: 10px !important;
         }
     }
+
+    /* ═══════════════════════════════════════════════════════════════
+       SIDEBAR & BOTÕES DE NAVEGAÇÃO EXECUTIVOS
+       ═══════════════════════════════════════════════════════════════ */
+    section[data-testid="stSidebar"] {
+        background-color: #F8FAFC !important;
+        border-right: 1px solid #E2E8F0 !important;
+    }
+
+    /* Card da Marca Institucional na Sidebar */
+    .sidebar-brand-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 16px 12px 14px 12px;
+        margin-bottom: 20px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .sidebar-brand-title {
+        color: #1B3A6B;
+        font-weight: 800;
+        font-size: 0.96rem;
+        letter-spacing: 0.5px;
+        margin-top: 6px;
+        margin-bottom: 2px;
+    }
+    .sidebar-brand-subtitle {
+        color: #64748B;
+        font-size: 0.76rem;
+        font-weight: 500;
+        margin-bottom: 10px;
+    }
+    .sidebar-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #ECFDF5;
+        color: #065F46;
+        font-size: 0.72rem;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 20px;
+        border: 1px solid #A7F3D0;
+    }
+    .sidebar-status-dot {
+        width: 7px;
+        height: 7px;
+        background: #10B981;
+        border-radius: 50%;
+        box-shadow: 0 0 6px #10B981;
+    }
+
+    .sidebar-nav-header {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #64748B;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 10px;
+        padding-left: 4px;
+    }
+
+    /* Oculta os círculos de radio padrão na sidebar */
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
+        display: none !important;
+    }
+
+    /* Transforma as opções do radio em cartões de navegação profissionais */
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+        background: #FFFFFF !important;
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        padding: 13px 16px !important;
+        margin-bottom: 10px !important;
+        cursor: pointer !important;
+        transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03) !important;
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        border-left: 4px solid #CBD5E1 !important;
+    }
+
+    /* Hover no card não selecionado */
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+        border-color: #1B3A6B !important;
+        border-left-color: #0284C7 !important;
+        background: #F1F5F9 !important;
+        transform: translateX(3px) !important;
+        box-shadow: 0 4px 12px rgba(27, 58, 107, 0.08) !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label p {
+        font-size: 0.92rem !important;
+        font-weight: 600 !important;
+        color: #334155 !important;
+        margin: 0 !important;
+        line-height: 1.3 !important;
+        transition: color 0.2s ease !important;
+    }
+
+    /* Estado Ativo / Selecionado */
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+        background: linear-gradient(135deg, #1B3A6B 0%, #1E40AF 100%) !important;
+        border-color: #1B3A6B !important;
+        border-left: 4px solid #FCD34D !important;
+        box-shadow: 0 4px 14px rgba(27, 58, 107, 0.25) !important;
+        transform: translateX(3px) !important;
+    }
+
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
+    }
+
+    /* Rodapé institucional na Sidebar */
+    .sidebar-footer-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 12px;
+        margin-top: 28px;
+        font-size: 0.74rem;
+        color: #64748B;
+        line-height: 1.45;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .sidebar-footer-card strong {
+        color: #1B3A6B;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -361,12 +493,49 @@ render_header()
 # ─── SIDEBAR ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("### 📋 Navegação")
+    logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo_ansef.png")
+    logo_b64 = ""
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    img_side_html = (
+        f'<img src="data:image/png;base64,{logo_b64}" style="width: 58px; height: auto; margin-bottom: 4px;" alt="Logo ANSEF" />'
+        if logo_b64 else ""
+    )
+
+    st.markdown(f"""
+    <div class="sidebar-brand-card">
+        {img_side_html}
+        <div class="sidebar-brand-title">ANSEF / CAS</div>
+        <div class="sidebar-brand-subtitle">Campinas/SP • Declarações e Benefícios</div>
+        <div class="sidebar-status-pill">
+            <span class="sidebar-status-dot"></span>
+            Sistema Online
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-nav-header">Navegação do Portal</div>', unsafe_allow_html=True)
+
     modulo = st.radio(
         "Selecione o módulo:",
-        ["🏠 Área do Associado", "🔒 Área Restrita (Administração)"],
+        [
+            "🏠 Área do Associado",
+            "🔒 Área Restrita (Administração)"
+        ],
         label_visibility="collapsed",
+        key="nav_modulo_principal"
     )
+
+    st.markdown(f"""
+    <div class="sidebar-footer-card">
+        <strong>ANSEF Campinas/CAS</strong><br>
+        Associação dos Servidores da PF<br>
+        CNPJ: <code>19.010.380/0001-73</code><br>
+        <span style="color: #0284C7;">🔒 Conexão Criptografada SSL</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -18,6 +18,7 @@ from src.database import (
 )
 
 def run_tests():
+    excluir_grupo_familiar("Teste Titular Automacao")
     print("--- 1. Testing Age & Faixa Enquadramento ---")
     d1 = "1980-05-15"
     idade1 = calcular_idade(d1)
@@ -41,10 +42,11 @@ def run_tests():
     assert p2 == 350.0 and c2 == 250.0
 
     print("\n--- 2. Testing Inclusão de Novo Titular ---")
-    nome_titular = "TESTE TITULAR AUTOMACAO"
+    nome_titular_input = "TESTE TITULAR AUTOMACAO"
+    nome_titular_esperado = "Teste Titular Automacao"
     cpf_titular = "999.888.777-66"
     sucesso, msg, mid = adicionar_titular(
-        nome=nome_titular,
+        nome=nome_titular_input,
         data_nascimento=d1,
         cpf=cpf_titular,
         tipo_plano="P"
@@ -56,7 +58,7 @@ def run_tests():
     todos = listar_todos_membros()
     membro_inserido = next((m for m in todos if m["id"] == mid), None)
     assert membro_inserido is not None, "Titular não encontrado por ID!"
-    assert membro_inserido["beneficiario_nome"] == nome_titular
+    assert membro_inserido["beneficiario_nome"] == nome_titular_esperado, f"Esperado {nome_titular_esperado}, obtido {membro_inserido['beneficiario_nome']}"
     assert membro_inserido["tipo_plano"] == "P"
     assert membro_inserido["grau_parentesco"] == "Titular"
     assert membro_inserido["faixa_etaria"] == faixa1
@@ -64,11 +66,12 @@ def run_tests():
     print(f"Titular verificado com sucesso: Faixa={membro_inserido['faixa_etaria']}, Valor=R$ {membro_inserido['valor_mensalidade']}")
 
     print("\n--- 3. Testing Inclusão de Dependente ---")
-    nome_dep = "TESTE DEPENDENTE FILHO"
+    nome_dep_input = "TESTE DEPENDENTE FILHO"
+    nome_dep_esperado = "Teste Dependente Filho"
     cpf_dep = "999.888.777-55"
     sucesso_dep, msg_dep, mid_dep = adicionar_dependente(
-        titular_nome=nome_titular,
-        nome=nome_dep,
+        titular_nome=nome_titular_esperado,
+        nome=nome_dep_input,
         grau_parentesco="Filho(a)",
         data_nascimento=d2,
         cpf=cpf_dep
@@ -80,7 +83,7 @@ def run_tests():
     todos = listar_todos_membros()
     dep_inserido = next((m for m in todos if m["id"] == mid_dep), None)
     assert dep_inserido is not None, "Dependente não encontrado por ID!"
-    assert dep_inserido["beneficiario_nome"] == nome_dep
+    assert dep_inserido["beneficiario_nome"] == nome_dep_esperado
     assert dep_inserido["tipo_plano"] == "P" # Herdado do titular
     assert dep_inserido["grau_parentesco"] == "Filho(a)"
     assert dep_inserido["faixa_etaria"] == faixa2
@@ -90,10 +93,9 @@ def run_tests():
     print("\n--- 4. Testing CSV Synchronization ---")
     csv_path = os.path.join(os.path.dirname(__file__), "..", "data", "integrantes.csv")
     df_csv = pd.read_csv(csv_path)
-    # Check column NOME or similar
     nomes_col = [c for c in df_csv.columns if c.upper() == "NOME"][0]
-    assert nome_titular in df_csv[nomes_col].values, "Titular não encontrado no CSV!"
-    assert nome_dep in df_csv[nomes_col].values, "Dependente não encontrado no CSV!"
+    assert nome_titular_esperado in df_csv[nomes_col].values, "Titular não encontrado no CSV!"
+    assert nome_dep_esperado in df_csv[nomes_col].values, "Dependente não encontrado no CSV!"
     print("CSV contém o titular e o dependente recém inseridos!")
 
     print("\n--- 5. Testing Exclusão de Dependente ---")
@@ -105,30 +107,29 @@ def run_tests():
     assert not any(m["id"] == mid_dep for m in todos_apos_exc), "Dependente ainda existe após exclusão!"
 
     df_csv_dep = pd.read_csv(csv_path)
-    assert nome_dep not in df_csv_dep[nomes_col].values, "Dependente ainda consta no CSV após exclusão!"
+    assert nome_dep_esperado not in df_csv_dep[nomes_col].values, "Dependente ainda consta no CSV após exclusão!"
     print("Dependente excluído e CSV atualizado com sucesso!")
 
     print("\n--- 6. Testing Inclusão de Segundo Dependente e Exclusão do Grupo Inteiro ---")
-    # Re-adicionar dependente para testar exclusão de grupo com dependentes
     adicionar_dependente(
-        titular_nome=nome_titular,
-        nome=nome_dep,
+        titular_nome=nome_titular_esperado,
+        nome=nome_dep_input,
         grau_parentesco="Filho(a)",
         data_nascimento=d2,
         cpf=cpf_dep
     )
-    sucesso_grupo, msg_grupo, total_removidos = excluir_grupo_familiar(nome_titular)
+    sucesso_grupo, msg_grupo, total_removidos = excluir_grupo_familiar(nome_titular_esperado)
     print(f"Resultado excluir_grupo_familiar: sucesso={sucesso_grupo}, msg='{msg_grupo}', removidos={total_removidos}")
     assert sucesso_grupo, f"Falha ao excluir grupo familiar: {msg_grupo}"
     assert total_removidos == 2, f"Esperado 2 membros removidos, obtido {total_removidos}"
 
     todos_apos_grupo = listar_todos_membros()
-    assert not any(m["beneficiario_nome"] == nome_titular for m in todos_apos_grupo), "Titular ainda existe após excluir grupo!"
-    assert not any(m["beneficiario_nome"] == nome_dep for m in todos_apos_grupo), "Dependente ainda existe após excluir grupo!"
+    assert not any(m["beneficiario_nome"] == nome_titular_esperado for m in todos_apos_grupo), "Titular ainda existe após excluir grupo!"
+    assert not any(m["beneficiario_nome"] == nome_dep_esperado for m in todos_apos_grupo), "Dependente ainda existe após excluir grupo!"
 
     df_csv_final = pd.read_csv(csv_path)
-    assert nome_titular not in df_csv_final[nomes_col].values, "Titular ainda consta no CSV!"
-    assert nome_dep not in df_csv_final[nomes_col].values, "Dependente ainda consta no CSV!"
+    assert nome_titular_esperado not in df_csv_final[nomes_col].values, "Titular ainda consta no CSV!"
+    assert nome_dep_esperado not in df_csv_final[nomes_col].values, "Dependente ainda consta no CSV!"
     print("Grupo familiar completamente removido do banco e CSV!")
 
     print("\n[OK] TODOS OS TESTES PASSARAM COM SUCESSO!")

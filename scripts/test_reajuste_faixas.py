@@ -61,10 +61,10 @@ class TestFaixasEtarias(unittest.TestCase):
         self.assertEqual(nomes_migrados["Ivan Esteves Ribeiro Filho"]["faixa_calculada"], "54 – 58 anos")
         self.assertEqual(nomes_migrados["Ivan Esteves Ribeiro Filho"]["valor_faixa_atual"], 1110.0)
 
-        self.assertIn("DANILO SOARES ROSA", nomes_migrados)
-        self.assertEqual(nomes_migrados["DANILO SOARES ROSA"]["idade_atual"], 24)
-        self.assertEqual(nomes_migrados["DANILO SOARES ROSA"]["faixa_calculada"], "24 – 28 anos")
-        self.assertEqual(nomes_migrados["DANILO SOARES ROSA"]["valor_faixa_atual"], 340.0)
+        self.assertIn("Danilo Soares Rosa", nomes_migrados)
+        self.assertEqual(nomes_migrados["Danilo Soares Rosa"]["idade_atual"], 24)
+        self.assertEqual(nomes_migrados["Danilo Soares Rosa"]["faixa_calculada"], "24 – 28 anos")
+        self.assertEqual(nomes_migrados["Danilo Soares Rosa"]["valor_faixa_atual"], 340.0)
 
         self.assertIn("Renan Marçal Rodrigues", nomes_migrados)
         self.assertEqual(nomes_migrados["Renan Marçal Rodrigues"]["idade_atual"], 60)
