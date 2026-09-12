@@ -1,8 +1,9 @@
 # Secrets (contém senhas)
 .streamlit/secrets.toml
 
-# Banco de dados local
-data/ansef_database.db
+# Caches SQLite temporários (o banco data/ansef_database.db é rastreado para persistência)
+data/*.db-shm
+data/*.db-wal
 
 # Caches Python
 __pycache__/

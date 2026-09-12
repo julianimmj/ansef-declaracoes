@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "codigo_validacao": "ANSEF-2026-4BEEFAE7",
+    "titular_nome": "Vera Lucia Damasio Marques e S.",
+    "titular_cpf": "55533322241",
+    "dependentes_incluidos": "[{\"nome\": \"Vera Lucia Damasio Marques e S.\", \"parentesco\": \"Titular\", \"valor\": 1710.0}]",
+    "mes_referencia": 1,
+    "ano_referencia": 2026,
+    "data_pagamento": "11/09/2026",
+    "valor_total": 1710.0,
+    "status": "APROVADO",
+    "data_solicitacao": "2026-09-11 16:33:53",
+    "data_analise": "2026-09-11T15:01:01.123498",
+    "observacoes_admin": null
+  }
+]

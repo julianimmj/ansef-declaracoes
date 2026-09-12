@@ -71,6 +71,10 @@ try:
         listar_todos_uniodonto,
         salvar_uniodonto_titular,
         remover_uniodonto_titular,
+        obter_pdf_solicitacao,
+        exportar_backup_json,
+        importar_backup_json,
+        DB_PATH,
     )
     from src.auth import (
         login_associado,
@@ -134,6 +138,10 @@ except ImportError:
         listar_todos_uniodonto,
         salvar_uniodonto_titular,
         remover_uniodonto_titular,
+        obter_pdf_solicitacao,
+        exportar_backup_json,
+        importar_backup_json,
+        DB_PATH,
     )
     from auth import (
         login_associado,
@@ -773,16 +781,20 @@ if modulo == "🏠 Área do Associado":
                             f"**CPF:** {formatar_cpf(sol['titular_cpf'])}"
                         )
 
-                        if status == "APROVADO" and sol.get("pdf_gerado"):
-                            st.download_button(
-                                label="📥 Baixar Declaração (PDF)",
-                                data=sol["pdf_gerado"],
-                                file_name=f"Declaracao_ANSEF_{titular_logado}_{mes_ext}_{sol['ano_referencia']}.pdf",
-                                mime="application/pdf",
-                                type="primary",
-                                use_container_width=True,
-                                key=f"dl_pdf_assoc_{sol['id']}",
-                            )
+                        if status == "APROVADO":
+                            pdf_data = sol.get("pdf_gerado") or obter_pdf_solicitacao(sol["id"])
+                            if pdf_data:
+                                st.download_button(
+                                    label="📥 Baixar Declaração (PDF)",
+                                    data=pdf_data,
+                                    file_name=f"Declaracao_ANSEF_{titular_logado}_{mes_ext}_{sol['ano_referencia']}.pdf",
+                                    mime="application/pdf",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key=f"dl_pdf_assoc_{sol['id']}",
+                                )
+                            else:
+                                st.info("O PDF está sendo processado pela administração.")
                         elif status == "CANCELADO":
                             st.warning(
                                 "⚠️ **Esta aprovação foi cancelada/revogada pela administração.** "
@@ -1134,10 +1146,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         col_print, col_cancel = st.columns([1.5, 2])
 
                         with col_print:
-                            if sol_ap.get("pdf_gerado"):
+                            pdf_admin = sol_ap.get("pdf_gerado") or obter_pdf_solicitacao(sol_ap["id"])
+                            if pdf_admin:
                                 st.download_button(
                                     label="🖨️ Baixar / Imprimir PDF",
-                                    data=sol_ap["pdf_gerado"],
+                                    data=pdf_admin,
                                     file_name=f"Declaracao_ANSEF_{sol_ap['titular_nome']}_{mes_ap_ext}_{sol_ap['ano_referencia']}.pdf",
                                     mime="application/pdf",
                                     type="primary",
@@ -1747,6 +1760,57 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             st.caption("Exportação para Excel requer openpyxl (disponível no Streamlit Cloud). Utilize o botão de CSV ao lado.")
                 else:
                     st.info("Nenhuma solicitação encontrada com os filtros aplicados.")
+
+            # ── GESTÃO DE BACKUP & PERSISTÊNCIA ──────────────────────────────
+            st.markdown("---")
+            with st.expander("💾 Gestão de Backup & Persistência do Histórico", expanded=False):
+                st.markdown("##### 🛡️ Salvaguarda Permanente de Dados")
+                st.caption(
+                    "O sistema mantém todas as solicitações e aprovações sincronizadas com o arquivo "
+                    "`data/solicitacoes_backup.json` e o banco `data/ansef_database.db`. "
+                    "Baixe cópias de segurança periódicas ou restaure dados a qualquer momento."
+                )
+
+                col_bk1, col_bk2 = st.columns(2)
+                with col_bk1:
+                    backup_json_str = exportar_backup_json()
+                    st.download_button(
+                        label="📥 Baixar Backup de Solicitações (JSON)",
+                        data=backup_json_str.encode("utf-8"),
+                        file_name=f"backup_ansef_solicitacoes_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="btn_dl_backup_json",
+                    )
+
+                with col_bk2:
+                    if os.path.exists(DB_PATH):
+                        with open(DB_PATH, "rb") as f_db:
+                            db_bytes = f_db.read()
+                        st.download_button(
+                            label="📥 Baixar Banco de Dados Completo (.db)",
+                            data=db_bytes,
+                            file_name=f"ansef_database_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                            mime="application/x-sqlite3",
+                            use_container_width=True,
+                            key="btn_dl_backup_db",
+                        )
+
+                st.markdown("##### 📤 Restaurar Backup de Solicitações")
+                arquivo_upload = st.file_uploader(
+                    "Envie um arquivo JSON de backup para restaurar declarações:",
+                    type=["json"],
+                    key="uploader_backup_json",
+                )
+                if arquivo_upload is not None:
+                    if st.button("Confirmar Restauração de Dados", type="primary", key="btn_confirm_restore"):
+                        conteudo = arquivo_upload.read().decode("utf-8")
+                        sucesso_res, msg_res, qtd = importar_backup_json(conteudo)
+                        if sucesso_res:
+                            st.success(f"✅ {msg_res}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg_res}")
 
         # ── ABA 4: CONFIGURAÇÃO DE E-MAIL ──────────────────────────────────
         with tab_config_email:

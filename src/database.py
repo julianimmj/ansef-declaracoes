@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "ansef_database.db")
 CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
+SOLICITACOES_BACKUP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
 
 TABELA_FAIXAS_PADRAO = [
     ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
@@ -172,6 +173,16 @@ def inicializar_banco():
         # Recalcula mensalidades com base na tabela de faixas etárias e idade
         recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn)
+
+        # Sincroniza solicitações com backup JSON permanente
+        count_sol = conn.execute("SELECT COUNT(*) FROM solicitacoes").fetchone()[0]
+        if count_sol == 0:
+            _carregar_backup_solicitacoes(conn)
+        else:
+            _salvar_backup_solicitacoes(conn)
+
+        # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado
+        _garantir_pdfs_solicitacoes_aprovadas(conn)
 
 
 def _carregar_csv(conn):
@@ -553,6 +564,231 @@ def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool
         return dt_cadastro == data_nascimento.strftime("%Y-%m-%d")
 
 
+# ─── BACKUP E PERSISTÊNCIA DE SOLICITAÇÕES ────────────────────────────────────
+
+def _salvar_backup_solicitacoes(conn=None) -> None:
+    """
+    Exporta todas as solicitações para um arquivo JSON permanente.
+    Permite restaurar o histórico completo caso o contêiner efêmero seja recriado.
+    O campo binário do PDF não é incluído no JSON para manter o arquivo leve e versionável no Git.
+    """
+    try:
+        def _exec(c):
+            rows = c.execute("SELECT * FROM solicitacoes ORDER BY id ASC").fetchall()
+            data = []
+            for r in rows:
+                item = dict(r)
+                item.pop("pdf_gerado", None)
+                data.append(item)
+            os.makedirs(os.path.dirname(SOLICITACOES_BACKUP_PATH), exist_ok=True)
+            with open(SOLICITACOES_BACKUP_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        if conn:
+            _exec(conn)
+        else:
+            with get_connection() as c:
+                _exec(c)
+    except Exception as e:
+        logger.warning(f"Erro ao salvar backup de solicitacoes: {e}")
+
+
+def _carregar_backup_solicitacoes(conn) -> int:
+    """
+    Restaura solicitações a partir do arquivo JSON permanente caso existam e não estejam no banco.
+    """
+    if not os.path.exists(SOLICITACOES_BACKUP_PATH):
+        return 0
+
+    try:
+        with open(SOLICITACOES_BACKUP_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data or not isinstance(data, list):
+            return 0
+
+        total_restaurados = 0
+        for item in data:
+            cod = item.get("codigo_validacao")
+            iid = item.get("id")
+            existe = conn.execute(
+                "SELECT id FROM solicitacoes WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
+                (iid, cod)
+            ).fetchone()
+            if not existe:
+                conn.execute("""
+                    INSERT INTO solicitacoes (
+                        id, codigo_validacao, titular_nome, titular_cpf, dependentes_incluidos,
+                        mes_referencia, ano_referencia, data_pagamento, valor_total,
+                        status, data_solicitacao, data_analise, observacoes_admin, pdf_gerado
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item.get("id"),
+                    item.get("codigo_validacao"),
+                    item.get("titular_nome"),
+                    item.get("titular_cpf"),
+                    item.get("dependentes_incluidos", "[]"),
+                    item.get("mes_referencia"),
+                    item.get("ano_referencia"),
+                    item.get("data_pagamento"),
+                    item.get("valor_total"),
+                    item.get("status", "PENDENTE"),
+                    item.get("data_solicitacao"),
+                    item.get("data_analise"),
+                    item.get("observacoes_admin"),
+                    None
+                ))
+                total_restaurados += 1
+
+        if total_restaurados > 0:
+            logger.info(f"Restauradas {total_restaurados} solicitacoes do backup JSON.")
+        return total_restaurados
+    except Exception as e:
+        logger.warning(f"Erro ao carregar backup de solicitacoes: {e}")
+        return 0
+
+
+def _garantir_pdfs_solicitacoes_aprovadas(conn) -> None:
+    """
+    Garante que qualquer solicitação com status APROVADO que não possua
+    o BLOB do PDF gerado tenha seu PDF sintetizado e salvo no banco.
+    """
+    try:
+        rows = conn.execute("""
+            SELECT * FROM solicitacoes
+            WHERE status = 'APROVADO' AND (pdf_gerado IS NULL OR LENGTH(pdf_gerado) < 100)
+        """).fetchall()
+
+        if not rows:
+            return
+
+        try:
+            from src.pdf_generator import gerar_pdf_declaracao
+        except ImportError:
+            from pdf_generator import gerar_pdf_declaracao
+
+        for r in rows:
+            sol = dict(r)
+            try:
+                novo_pdf = gerar_pdf_declaracao(
+                    titular_nome=sol["titular_nome"],
+                    titular_cpf=sol["titular_cpf"],
+                    dependentes_json=sol.get("dependentes_incluidos", "[]"),
+                    mes_referencia=sol["mes_referencia"],
+                    ano_referencia=sol["ano_referencia"],
+                    data_pagamento=sol["data_pagamento"],
+                    valor_total=sol["valor_total"],
+                    codigo_validacao=sol.get("codigo_validacao") or f"ANSEF-{sol['ano_referencia']}-{sol['id']:04d}",
+                )
+                conn.execute(
+                    "UPDATE solicitacoes SET pdf_gerado = ? WHERE id = ?",
+                    (novo_pdf, sol["id"])
+                )
+            except Exception as ex:
+                logger.error(f"Erro ao sintetizar PDF para solicitacao aprovada #{sol['id']}: {ex}")
+    except Exception as e:
+        logger.warning(f"Erro ao verificar PDFs de solicitacoes aprovadas: {e}")
+
+
+def obter_pdf_solicitacao(sol_id: int) -> bytes | None:
+    """
+    Retorna os bytes do PDF de uma solicitação aprovada.
+    Caso o registro não tenha os bytes salvos, sintetiza dinamicamente e persiste.
+    """
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM solicitacoes WHERE id = ?", (sol_id,)).fetchone()
+        if not row:
+            return None
+        sol = dict(row)
+        pdf_bytes = sol.get("pdf_gerado")
+        if pdf_bytes and len(pdf_bytes) > 100:
+            return pdf_bytes
+
+        if sol.get("status") == "APROVADO":
+            try:
+                from src.pdf_generator import gerar_pdf_declaracao
+            except ImportError:
+                from pdf_generator import gerar_pdf_declaracao
+
+            try:
+                novo_pdf = gerar_pdf_declaracao(
+                    titular_nome=sol["titular_nome"],
+                    titular_cpf=sol["titular_cpf"],
+                    dependentes_json=sol.get("dependentes_incluidos", "[]"),
+                    mes_referencia=sol["mes_referencia"],
+                    ano_referencia=sol["ano_referencia"],
+                    data_pagamento=sol["data_pagamento"],
+                    valor_total=sol["valor_total"],
+                    codigo_validacao=sol.get("codigo_validacao") or f"ANSEF-{sol['ano_referencia']}-{sol['id']:04d}",
+                )
+                conn.execute("UPDATE solicitacoes SET pdf_gerado = ? WHERE id = ?", (novo_pdf, sol_id))
+                return novo_pdf
+            except Exception as e:
+                logger.error(f"Erro ao sintetizar PDF sob demanda para #{sol_id}: {e}")
+                return None
+        return None
+
+
+def exportar_backup_json() -> str:
+    """Retorna o JSON completo de todas as solicitações para download de segurança."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM solicitacoes ORDER BY id ASC").fetchall()
+        data = []
+        for r in rows:
+            item = dict(r)
+            item.pop("pdf_gerado", None)
+            data.append(item)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def importar_backup_json(conteudo_json: str) -> tuple[bool, str, int]:
+    """Importa e mescla solicitações a partir de um JSON de backup fornecido pelo admin."""
+    try:
+        data = json.loads(conteudo_json)
+        if not isinstance(data, list):
+            return False, "O conteúdo do arquivo deve ser uma lista de solicitações em JSON.", 0
+
+        restaurados = 0
+        with get_connection() as conn:
+            for item in data:
+                cod = item.get("codigo_validacao")
+                iid = item.get("id")
+                existe = conn.execute(
+                    "SELECT id FROM solicitacoes WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
+                    (iid, cod)
+                ).fetchone()
+                if not existe:
+                    conn.execute("""
+                        INSERT INTO solicitacoes (
+                            id, codigo_validacao, titular_nome, titular_cpf, dependentes_incluidos,
+                            mes_referencia, ano_referencia, data_pagamento, valor_total,
+                            status, data_solicitacao, data_analise, observacoes_admin, pdf_gerado
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        item.get("id"),
+                        item.get("codigo_validacao"),
+                        item.get("titular_nome"),
+                        item.get("titular_cpf"),
+                        item.get("dependentes_incluidos", "[]"),
+                        item.get("mes_referencia"),
+                        item.get("ano_referencia"),
+                        item.get("data_pagamento"),
+                        item.get("valor_total"),
+                        item.get("status", "PENDENTE"),
+                        item.get("data_solicitacao"),
+                        item.get("data_analise"),
+                        item.get("observacoes_admin"),
+                        None
+                    ))
+                    restaurados += 1
+
+            _salvar_backup_solicitacoes(conn)
+            _garantir_pdfs_solicitacoes_aprovadas(conn)
+
+        return True, f"{restaurados} solicitação(ões) importada(s) com sucesso!", restaurados
+    except Exception as e:
+        return False, f"Erro ao processar backup JSON: {str(e)}", 0
+
+
 # ─── SOLICITAÇÕES ─────────────────────────────────────────────────────────────
 
 def criar_solicitacao(titular_nome: str, titular_cpf: str,
@@ -578,6 +814,7 @@ def criar_solicitacao(titular_nome: str, titular_cpf: str,
             UPDATE solicitacoes SET codigo_validacao = ? WHERE id = ?
         """, (codigo, sol_id))
 
+        _salvar_backup_solicitacoes(conn)
         return sol_id
 
 
@@ -642,6 +879,7 @@ def aprovar_solicitacao(sol_id: int, dependentes_json: str,
         """, (dependentes_json, valor_total, data_pagamento,
               mes_ref, ano_ref,
               datetime.now().isoformat(), pdf_bytes, sol_id))
+        _salvar_backup_solicitacoes(conn)
 
 
 def rejeitar_solicitacao(sol_id: int, observacoes: str) -> None:
@@ -654,6 +892,7 @@ def rejeitar_solicitacao(sol_id: int, observacoes: str) -> None:
                 observacoes_admin = ?
             WHERE id = ?
         """, (datetime.now().isoformat(), observacoes, sol_id))
+        _salvar_backup_solicitacoes(conn)
 
 
 def cancelar_aprovacao(sol_id: int, motivo: str = "") -> None:
@@ -679,6 +918,7 @@ def cancelar_aprovacao(sol_id: int, motivo: str = "") -> None:
                 observacoes_admin = ?
             WHERE id = ?
         """, (novo_obs, sol_id))
+        _salvar_backup_solicitacoes(conn)
 
 
 def listar_solicitacoes_aprovadas() -> list[dict]:
@@ -700,6 +940,7 @@ def atualizar_solicitacao_campos(sol_id: int, **kwargs) -> None:
     valores = list(kwargs.values()) + [sol_id]
     with get_connection() as conn:
         conn.execute(f"UPDATE solicitacoes SET {campos} WHERE id = ?", valores)
+        _salvar_backup_solicitacoes(conn)
 
 
 # ─── REAJUSTE DE VALORES E MEMBROS ───────────────────────────────────────────
