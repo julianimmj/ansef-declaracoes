@@ -74,6 +74,9 @@ try:
         obter_pdf_solicitacao,
         exportar_backup_json,
         importar_backup_json,
+        exportar_backup_precos_json,
+        importar_backup_precos_json,
+        CONFIG_PRECOS_PATH,
         DB_PATH,
     )
     from src.auth import (
@@ -141,6 +144,9 @@ except ImportError:
         obter_pdf_solicitacao,
         exportar_backup_json,
         importar_backup_json,
+        exportar_backup_precos_json,
+        importar_backup_precos_json,
+        CONFIG_PRECOS_PATH,
         DB_PATH,
     )
     from auth import (
@@ -1736,6 +1742,16 @@ elif modulo == "🔒 Área Restrita (Administração)":
             # BLOCO 1: ALTERAÇÃO DE PREÇO POR VIDA
             st.markdown("##### 💵 Configuração de Preço por Vida")
             st.caption("Altere o valor digitando o novo valor ou informando uma porcentagem de correção. O novo valor é mantido no sistema até nova correção.")
+            data_att_u = cfg_uniodonto_info.get("data_atualizacao", "")
+            if data_att_u:
+                try:
+                    dt_u_obj = datetime.fromisoformat(data_att_u.replace("Z", ""))
+                    data_u_fmt = dt_u_obj.strftime("%d/%m/%Y às %H:%M")
+                except Exception:
+                    data_u_fmt = data_att_u[:16]
+                st.caption(f"🕒 **Última atualização registrada:** `{data_u_fmt}` — 🛡️ *Persistência ativa em `data/config_precos.json`*")
+            else:
+                st.caption("🛡️ *Persistência permanente ativa: qualquer reajuste é gravado imediatamente no banco e no arquivo permanente (`data/config_precos.json`).*")
 
             col_p1, col_p2 = st.columns(2)
             with col_p1:
@@ -1940,11 +1956,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     "Baixe cópias de segurança periódicas ou restaure dados a qualquer momento."
                 )
 
-                col_bk1, col_bk2 = st.columns(2)
+                col_bk1, col_bk2, col_bk3 = st.columns(3)
                 with col_bk1:
                     backup_json_str = exportar_backup_json()
                     st.download_button(
-                        label="📥 Baixar Backup de Solicitações (JSON)",
+                        label="📥 Baixar Solicitações (JSON)",
                         data=backup_json_str.encode("utf-8"),
                         file_name=f"backup_ansef_solicitacoes_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                         mime="application/json",
@@ -1953,11 +1969,22 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     )
 
                 with col_bk2:
+                    backup_precos_str = exportar_backup_precos_json()
+                    st.download_button(
+                        label="📥 Baixar Preços & Config (JSON)",
+                        data=backup_precos_str.encode("utf-8"),
+                        file_name=f"backup_ansef_precos_config_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="btn_dl_backup_precos_json",
+                    )
+
+                with col_bk3:
                     if os.path.exists(DB_PATH):
                         with open(DB_PATH, "rb") as f_db:
                             db_bytes = f_db.read()
                         st.download_button(
-                            label="📥 Baixar Banco de Dados Completo (.db)",
+                            label="📥 Baixar Banco (.db)",
                             data=db_bytes,
                             file_name=f"ansef_database_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
                             mime="application/x-sqlite3",
@@ -1965,21 +1992,41 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             key="btn_dl_backup_db",
                         )
 
-                st.markdown("##### 📤 Restaurar Backup de Solicitações")
-                arquivo_upload = st.file_uploader(
-                    "Envie um arquivo JSON de backup para restaurar declarações:",
-                    type=["json"],
-                    key="uploader_backup_json",
-                )
-                if arquivo_upload is not None:
-                    if st.button("Confirmar Restauração de Dados", type="primary", key="btn_confirm_restore"):
-                        conteudo = arquivo_upload.read().decode("utf-8")
-                        sucesso_res, msg_res, qtd = importar_backup_json(conteudo)
-                        if sucesso_res:
-                            st.success(f"✅ {msg_res}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {msg_res}")
+                st.markdown("---")
+                col_up1, col_up2 = st.columns(2)
+                with col_up1:
+                    st.markdown("##### 📤 Restaurar Solicitações")
+                    arquivo_upload = st.file_uploader(
+                        "Envie um arquivo JSON de solicitações:",
+                        type=["json"],
+                        key="uploader_backup_json",
+                    )
+                    if arquivo_upload is not None:
+                        if st.button("Confirmar Restauração de Declarações", type="primary", key="btn_confirm_restore"):
+                            conteudo = arquivo_upload.read().decode("utf-8")
+                            sucesso_res, msg_res, qtd = importar_backup_json(conteudo)
+                            if sucesso_res:
+                                st.success(f"✅ {msg_res}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_res}")
+
+                with col_up2:
+                    st.markdown("##### 📤 Restaurar Preços & Configurações")
+                    arquivo_upload_precos = st.file_uploader(
+                        "Envie um arquivo JSON de preços e faixas:",
+                        type=["json"],
+                        key="uploader_backup_precos_json",
+                    )
+                    if arquivo_upload_precos is not None:
+                        if st.button("Confirmar Restauração de Preços", type="primary", key="btn_confirm_restore_precos"):
+                            conteudo_p = arquivo_upload_precos.read().decode("utf-8")
+                            sucesso_resp, msg_resp = importar_backup_precos_json(conteudo_p)
+                            if sucesso_resp:
+                                st.success(f"✅ {msg_resp}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_resp}")
 
         # ── ABA 4: CONFIGURAÇÃO DE E-MAIL ──────────────────────────────────
         with tab_config_email:

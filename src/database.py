@@ -16,9 +16,22 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "ansef_database.db")
-CSV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
-SOLICITACOES_BACKUP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
+DB_PATH = os.environ.get("ANSEF_DB_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "ansef_database.db")
+CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
+SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
+CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "config_precos.json")
+
+def _obter_db_path() -> str:
+    return os.environ.get("ANSEF_DB_PATH") or DB_PATH
+
+def _obter_csv_path() -> str:
+    return os.environ.get("ANSEF_CSV_PATH") or CSV_PATH
+
+def _obter_solicitacoes_backup_path() -> str:
+    return os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or SOLICITACOES_BACKUP_PATH
+
+def _obter_config_precos_path() -> str:
+    return os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or CONFIG_PRECOS_PATH
 
 TABELA_FAIXAS_PADRAO = [
     ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
@@ -37,7 +50,7 @@ TABELA_FAIXAS_PADRAO = [
 @contextmanager
 def get_connection():
     """Context manager para conexões SQLite thread-safe."""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(_obter_db_path(), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -271,6 +284,9 @@ def inicializar_banco():
         # Padroniza todos os nomes para Title Case profissional
         padronizar_todos_nomes_banco(conn)
 
+        # Restaura reajustes de preços e configurações vigentes
+        _carregar_backup_precos(conn)
+
         # Recalcula mensalidades com base na tabela de faixas etárias e idade
         recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn)
@@ -281,6 +297,9 @@ def inicializar_banco():
             _carregar_backup_solicitacoes(conn)
         else:
             _salvar_backup_solicitacoes(conn)
+
+        # Garante que o arquivo config_precos.json esteja sempre sincronizado
+        _salvar_backup_precos(conn)
 
         # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado
         _garantir_pdfs_solicitacoes_aprovadas(conn)
@@ -516,6 +535,7 @@ def atualizar_tabela_faixa(faixa_id: int, valor_privativo: float, valor_coletivo
         """, (valor_privativo, valor_coletivo, faixa_id))
         recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn)
+        _salvar_backup_precos(conn)
 
 
 def reajustar_tabela_faixas_percentual(percentual: float) -> int:
@@ -540,6 +560,7 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
 
         count = recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn)
+        _salvar_backup_precos(conn)
         return count
 
 
@@ -890,6 +911,202 @@ def importar_backup_json(conteudo_json: str) -> tuple[bool, str, int]:
         return False, f"Erro ao processar backup JSON: {str(e)}", 0
 
 
+# ─── BACKUP E PERSISTÊNCIA DE PREÇOS E CONFIGURAÇÕES ─────────────────────────
+
+def _salvar_backup_precos(conn=None) -> None:
+    """
+    Exporta toda a configuração de preços vigentes para o arquivo JSON permanente data/config_precos.json:
+    - Valor unitário por vida do plano Uniodonto (e data de atualização)
+    - Titulares e vidas do plano Uniodonto
+    - Tabela de faixas etárias da Unimed (valores privativo e coletivo)
+    - Valores customizados de membros (config_valores)
+    Garante que qualquer alteração feita pelo administrador seja gravada imediatamente em arquivo permanente.
+    """
+    caminho_precos = _obter_config_precos_path()
+    try:
+        def _exec(c):
+            # 1. Uniodonto config
+            row_u = c.execute("SELECT valor_por_vida, data_atualizacao FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
+            cfg_uniodonto = {
+                "valor_por_vida": float(row_u["valor_por_vida"]) if row_u else 35.00,
+                "data_atualizacao": str(row_u["data_atualizacao"]) if row_u else datetime.now().isoformat()
+            }
+
+            # 2. Uniodonto titulares
+            rows_ut = c.execute("SELECT titular_nome, vidas, data_atualizacao FROM uniodonto_titulares ORDER BY titular_nome ASC").fetchall()
+            titulares_u = [
+                {
+                    "titular_nome": r["titular_nome"],
+                    "vidas": int(r["vidas"]),
+                    "data_atualizacao": str(r["data_atualizacao"])
+                }
+                for r in rows_ut
+            ]
+
+            # 3. Tabela de faixas etárias Unimed
+            rows_fx = c.execute("SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC").fetchall()
+            faixas = [
+                {
+                    "id": r["id"],
+                    "faixa_etaria": r["faixa_etaria"],
+                    "idade_min": r["idade_min"],
+                    "idade_max": r["idade_max"],
+                    "valor_privativo": float(r["valor_privativo"]),
+                    "valor_coletivo": float(r["valor_coletivo"]),
+                    "ordem": r["ordem"]
+                }
+                for r in rows_fx
+            ]
+
+            # 4. Config valores individuais
+            rows_cv = c.execute("SELECT beneficiario_nome, valor_atualizado, data_atualizacao FROM config_valores ORDER BY beneficiario_nome ASC").fetchall()
+            config_valores = [
+                {
+                    "beneficiario_nome": r["beneficiario_nome"],
+                    "valor_atualizado": float(r["valor_atualizado"]),
+                    "data_atualizacao": str(r["data_atualizacao"])
+                }
+                for r in rows_cv
+            ]
+
+            payload = {
+                "ultima_atualizacao": datetime.now().isoformat(),
+                "config_uniodonto": cfg_uniodonto,
+                "uniodonto_titulares": titulares_u,
+                "tabela_faixas_etarias": faixas,
+                "config_valores": config_valores,
+            }
+
+            os.makedirs(os.path.dirname(caminho_precos), exist_ok=True)
+            with open(caminho_precos, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        if conn:
+            _exec(conn)
+        else:
+            with get_connection() as c:
+                _exec(c)
+    except Exception as e:
+        logger.warning(f"Erro ao salvar backup de preços: {e}")
+
+
+def _carregar_backup_precos(conn) -> bool:
+    """
+    Restaura os preços e configurações salvos em data/config_precos.json para o banco de dados.
+    Garante que os reajustes feitos pelo administrador persistam através de reinicializações e deploys.
+    """
+    caminho_precos = _obter_config_precos_path()
+    if not os.path.exists(caminho_precos):
+        _salvar_backup_precos(conn)
+        return False
+
+    try:
+        with open(caminho_precos, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data or not isinstance(data, dict):
+            return False
+
+        # 1. Restaura Uniodonto valor por vida
+        cfg_u = data.get("config_uniodonto", {})
+        if "valor_por_vida" in cfg_u:
+            val_u = float(cfg_u["valor_por_vida"])
+            dt_u = cfg_u.get("data_atualizacao", datetime.now().isoformat())
+            row_last = conn.execute("SELECT valor_por_vida FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
+            if not row_last or abs(float(row_last["valor_por_vida"]) - val_u) > 0.001:
+                conn.execute(
+                    "INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao) VALUES (?, ?)",
+                    (val_u, dt_u)
+                )
+
+        # 2. Restaura Uniodonto titulares e vidas
+        tit_u_list = data.get("uniodonto_titulares", [])
+        if tit_u_list:
+            for item in tit_u_list:
+                t_nome = padronizar_nome(item.get("titular_nome", ""))
+                v_vidas = int(item.get("vidas", 1))
+                dt_tut = item.get("data_atualizacao", datetime.now().isoformat())
+                if t_nome:
+                    conn.execute("""
+                        INSERT INTO uniodonto_titulares (titular_nome, vidas, data_atualizacao)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(titular_nome) DO UPDATE SET
+                            vidas = excluded.vidas,
+                            data_atualizacao = excluded.data_atualizacao
+                    """, (t_nome, v_vidas, dt_tut))
+
+        # 3. Restaura Tabela de faixas etárias Unimed
+        faixas_list = data.get("tabela_faixas_etarias", [])
+        if faixas_list:
+            for fx in faixas_list:
+                fx_id = fx.get("id")
+                vp = float(fx.get("valor_privativo", 0.0))
+                vc = float(fx.get("valor_coletivo", 0.0))
+                faixa_etaria = fx.get("faixa_etaria")
+                if fx_id:
+                    conn.execute("""
+                        UPDATE tabela_faixas_etarias
+                        SET valor_privativo = ?, valor_coletivo = ?
+                        WHERE id = ?
+                    """, (vp, vc, fx_id))
+                elif faixa_etaria:
+                    conn.execute("""
+                        UPDATE tabela_faixas_etarias
+                        SET valor_privativo = ?, valor_coletivo = ?
+                        WHERE faixa_etaria = ?
+                    """, (vp, vc, faixa_etaria))
+
+        # 4. Restaura config_valores se houver
+        cv_list = data.get("config_valores", [])
+        if cv_list:
+            for cv in cv_list:
+                b_nome = padronizar_nome(cv.get("beneficiario_nome", ""))
+                v_at = float(cv.get("valor_atualizado", 0.0))
+                dt_cv = cv.get("data_atualizacao", datetime.now().isoformat())
+                if b_nome:
+                    conn.execute("""
+                        INSERT INTO config_valores (beneficiario_nome, valor_atualizado, data_atualizacao)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(beneficiario_nome) DO UPDATE SET
+                            valor_atualizado = excluded.valor_atualizado,
+                            data_atualizacao = excluded.data_atualizacao
+                    """, (b_nome, v_at, dt_cv))
+
+        return True
+    except Exception as e:
+        logger.warning(f"Erro ao carregar backup de preços: {e}")
+        return False
+
+
+def exportar_backup_precos_json() -> str:
+    """Retorna o JSON completo da configuração de preços e faixas para download."""
+    with get_connection() as conn:
+        _salvar_backup_precos(conn)
+    caminho_precos = _obter_config_precos_path()
+    if os.path.exists(caminho_precos):
+        with open(caminho_precos, "r", encoding="utf-8") as f:
+            return f.read()
+    return "{}"
+
+
+def importar_backup_precos_json(conteudo_json: str) -> tuple[bool, str]:
+    """Importa e aplica a configuração de preços a partir de um JSON fornecido pelo admin."""
+    try:
+        data = json.loads(conteudo_json)
+        if not isinstance(data, dict):
+            return False, "O conteúdo do arquivo deve ser um objeto JSON válido de configuração de preços."
+        caminho_precos = _obter_config_precos_path()
+        os.makedirs(os.path.dirname(caminho_precos), exist_ok=True)
+        with open(caminho_precos, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        with get_connection() as conn:
+            _carregar_backup_precos(conn)
+            recalcular_mensalidades_membros(conn)
+            _sincronizar_csv_com_banco(conn)
+        return True, "Configuração de preços e faixas restaurada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao restaurar configuração de preços: {e}"
+
+
 # ─── SOLICITAÇÕES ─────────────────────────────────────────────────────────────
 
 def criar_solicitacao(titular_nome: str, titular_cpf: str,
@@ -1104,6 +1321,7 @@ def atualizar_valor_membro(beneficiario_nome: str, novo_valor: float) -> None:
             DO UPDATE SET valor_atualizado = excluded.valor_atualizado,
                           data_atualizacao = excluded.data_atualizacao
         """, (beneficiario_nome, novo_valor, datetime.now().isoformat()))
+        _salvar_backup_precos(conn)
 
 
 def reajustar_valores_lote(percentual: float) -> int:
@@ -1409,12 +1627,13 @@ def obter_config_uniodonto() -> dict:
 
 
 def atualizar_valor_uniodonto(novo_valor: float) -> None:
-    """Atualiza o valor por vida do plano Uniodonto."""
+    """Atualiza o valor por vida do plano Uniodonto e sincroniza com o arquivo permanente."""
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao)
             VALUES (?, ?)
         """, (round(float(novo_valor), 2), datetime.now().isoformat()))
+        _salvar_backup_precos(conn)
 
 
 def reajustar_valor_uniodonto_percentual(percentual: float) -> float:
@@ -1501,6 +1720,7 @@ def salvar_uniodonto_titular(titular_nome: str, vidas: int) -> tuple[bool, str]:
                 vidas = excluded.vidas,
                 data_atualizacao = excluded.data_atualizacao
         """, (nome_oficial, vidas, datetime.now().isoformat()))
+        _salvar_backup_precos(conn)
 
     return True, f"Titular '{nome_oficial}' atualizado na Uniodonto com {vidas} vida(s) (Total: R$ {valor_total:.2f})."
 
@@ -1515,6 +1735,7 @@ def remover_uniodonto_titular(titular_nome: str) -> tuple[bool, str]:
         )
         if cursor.rowcount == 0:
             return False, f"Titular '{titular_limpo}' não encontrado no cadastro da Uniodonto."
+        _salvar_backup_precos(conn)
     return True, f"Titular '{titular_limpo}' removido com sucesso do plano Uniodonto."
 
 

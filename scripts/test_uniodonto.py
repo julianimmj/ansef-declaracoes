@@ -1,5 +1,25 @@
 import os
 import sys
+import tempfile
+import shutil
+import json
+
+# Configura ambiente de teste isolado para não afetar o banco e configurações de produção
+test_dir = tempfile.mkdtemp()
+test_db = os.path.join(test_dir, "test_ansef.db")
+test_precos = os.path.join(test_dir, "test_precos.json")
+test_solic = os.path.join(test_dir, "test_solic.json")
+test_csv = os.path.join(test_dir, "test_integrantes.csv")
+
+# Copia CSV original para diretório de teste
+prod_csv = os.path.join(os.path.dirname(__file__), "..", "data", "integrantes.csv")
+if os.path.exists(prod_csv):
+    shutil.copyfile(prod_csv, test_csv)
+
+os.environ["ANSEF_DB_PATH"] = test_db
+os.environ["ANSEF_CONFIG_PRECOS_PATH"] = test_precos
+os.environ["ANSEF_SOLICITACOES_BACKUP_PATH"] = test_solic
+os.environ["ANSEF_CSV_PATH"] = test_csv
 
 # Ensure src is importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -68,23 +88,36 @@ def run_tests():
     assert obter_uniodonto_titular("Nestor Padilha") is None
     print(f"  [OK] Removido com sucesso: {msg_del}")
 
-    print("\n--- 5. Testing Price Update and Percentage Adjustment ---")
+    print("\n--- 5. Testing Price Update, Percentage Adjustment & JSON Persistence ---")
     valor_orig = cfg["valor_por_vida"]
-    atualizar_valor_uniodonto(40.00)
-    assert obter_config_uniodonto()["valor_por_vida"] == 40.00
-    print("  [OK] Preço atualizado diretamente para R$ 40.00")
+    atualizar_valor_uniodonto(42.50)
+    assert obter_config_uniodonto()["valor_por_vida"] == 42.50
+    
+    # Verifica se config_precos.json temporário foi atualizado imediatamente
+    with open(test_precos, "r", encoding="utf-8") as f:
+        precos_json = json.load(f)
+    assert abs(precos_json["config_uniodonto"]["valor_por_vida"] - 42.50) < 0.01, "config_precos.json deve refletir 42.50 imediatamente!"
+    print("  [OK] Preço atualizado diretamente para R$ 42.50 e refletido no JSON!")
 
-    novo_perc = reajustar_valor_uniodonto_percentual(10.0) # 40 + 10% = 44.00
-    assert abs(novo_perc - 44.00) < 0.01
-    assert abs(obter_config_uniodonto()["valor_por_vida"] - 44.00) < 0.01
-    print(f"  [OK] Reajuste de 10% aplicado: novo valor = R$ {novo_perc:.2f}")
+    novo_perc = reajustar_valor_uniodonto_percentual(10.0) # 42.50 + 10% = 46.75
+    assert abs(novo_perc - 46.75) < 0.01
+    assert abs(obter_config_uniodonto()["valor_por_vida"] - 46.75) < 0.01
+    with open(test_precos, "r", encoding="utf-8") as f:
+        precos_json = json.load(f)
+    assert abs(precos_json["config_uniodonto"]["valor_por_vida"] - 46.75) < 0.01, "config_precos.json deve refletir 46.75!"
+    print(f"  [OK] Reajuste de 10% aplicado e salvo no JSON: novo valor = R$ {novo_perc:.2f}")
 
-    # Restaura valor para 35.00
-    atualizar_valor_uniodonto(valor_orig)
-    assert abs(obter_config_uniodonto()["valor_por_vida"] - valor_orig) < 0.01
-    print(f"  [OK] Valor restaurado para R$ {valor_orig:.2f}")
+    print("\n--- 6. Testing Restoration on Fresh DB from config_precos.json ---")
+    # Remove banco SQLite para simular deploy/rebuild virgem
+    os.remove(test_db)
+    assert not os.path.exists(test_db)
+    inicializar_banco()
+    assert os.path.exists(test_db)
+    cfg_restaurada = obter_config_uniodonto()
+    assert abs(cfg_restaurada["valor_por_vida"] - 46.75) < 0.01, f"Valor restaurado deve ser 46.75, obtido {cfg_restaurada['valor_por_vida']}"
+    print(f"  [OK] Banco virgem restaurou perfeitamente o preço de R$ {cfg_restaurada['valor_por_vida']:.2f} do JSON!")
 
-    print("\n--- 6. Testing Unimed PDF Declaration Isolation ---")
+    print("\n--- 7. Testing Unimed PDF Declaration Isolation ---")
     # Garante que o PDF da declaração contenha unicamente o valor declarado da Unimed
     pdf_bytes = gerar_pdf_declaracao(
         titular_nome="Carlos Sergio Praciano P.",
@@ -99,7 +132,10 @@ def run_tests():
     assert pdf_bytes and len(pdf_bytes) > 1000, "Falha na geração do PDF!"
     print(f"  [OK] PDF da Unimed gerado com sucesso ({len(pdf_bytes)} bytes) isolado de valores odontológicos.")
 
-    print("\n[OK] TODOS OS TESTES DE UNIODONTO PASSARAM COM SUCESSO!")
+    print("\n[OK] TODOS OS TESTES DE UNIODONTO E PERSISTÊNCIA PASSARAM COM SUCESSO!")
 
 if __name__ == "__main__":
-    run_tests()
+    try:
+        run_tests()
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)

@@ -1,12 +1,35 @@
 import os
 import sys
+import tempfile
+import shutil
 import pandas as pd
 from datetime import date
+
+# Configura ambiente de teste isolado para não afetar o banco e CSV de produção
+test_dir = tempfile.mkdtemp()
+test_db = os.path.join(test_dir, "test_ansef.db")
+test_precos = os.path.join(test_dir, "test_precos.json")
+test_solic = os.path.join(test_dir, "test_solic.json")
+test_csv = os.path.join(test_dir, "test_integrantes.csv")
+
+prod_db = os.path.join(os.path.dirname(__file__), "..", "data", "ansef_database.db")
+if os.path.exists(prod_db):
+    shutil.copyfile(prod_db, test_db)
+
+prod_csv = os.path.join(os.path.dirname(__file__), "..", "data", "integrantes.csv")
+if os.path.exists(prod_csv):
+    shutil.copyfile(prod_csv, test_csv)
+
+os.environ["ANSEF_DB_PATH"] = test_db
+os.environ["ANSEF_CONFIG_PRECOS_PATH"] = test_precos
+os.environ["ANSEF_SOLICITACOES_BACKUP_PATH"] = test_solic
+os.environ["ANSEF_CSV_PATH"] = test_csv
 
 # Ensure src is importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.database import (
+    inicializar_banco,
     adicionar_titular,
     adicionar_dependente,
     excluir_membro,
@@ -14,10 +37,12 @@ from src.database import (
     listar_todos_membros,
     buscar_grupo_familiar,
     calcular_idade,
-    determinar_faixa_etaria
+    determinar_faixa_etaria,
+    CSV_PATH
 )
 
 def run_tests():
+    inicializar_banco()
     excluir_grupo_familiar("Teste Titular Automacao")
     print("--- 1. Testing Age & Faixa Enquadramento ---")
     d1 = "1980-05-15"
@@ -91,7 +116,7 @@ def run_tests():
     print(f"Dependente verificado com sucesso: Faixa={dep_inserido['faixa_etaria']}, Valor=R$ {dep_inserido['valor_mensalidade']}")
 
     print("\n--- 4. Testing CSV Synchronization ---")
-    csv_path = os.path.join(os.path.dirname(__file__), "..", "data", "integrantes.csv")
+    csv_path = test_csv
     df_csv = pd.read_csv(csv_path)
     nomes_col = [c for c in df_csv.columns if c.upper() == "NOME"][0]
     assert nome_titular_esperado in df_csv[nomes_col].values, "Titular não encontrado no CSV!"
@@ -135,4 +160,7 @@ def run_tests():
     print("\n[OK] TODOS OS TESTES PASSARAM COM SUCESSO!")
 
 if __name__ == "__main__":
-    run_tests()
+    try:
+        run_tests()
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
