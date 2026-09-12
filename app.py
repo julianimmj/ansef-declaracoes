@@ -1742,7 +1742,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
             # BLOCO 1: ALTERAÇÃO DE PREÇO POR VIDA
             st.markdown("##### 💵 Configuração de Preço por Vida")
             st.caption("Altere o valor digitando o novo valor ou informando uma porcentagem de correção. O novo valor é mantido no sistema até nova correção.")
-            data_att_u = cfg_uniodonto_info.get("data_atualizacao", "")
+            data_att_u = cfg_uniodonto.get("data_atualizacao", "")
             if data_att_u:
                 try:
                     dt_u_obj = datetime.fromisoformat(data_att_u.replace("Z", ""))
