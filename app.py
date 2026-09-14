@@ -2175,18 +2175,48 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
                 with st.expander("📖 Como configurar o GITHUB_TOKEN"):
                     st.markdown("""
-                    Para que as alterações persistam no Streamlit Cloud:
+                    Para que as alterações de preços e dados persistam no Streamlit Cloud, é necessário criar um
+                    **Fine-grained Personal Access Token** no GitHub com permissão de escrita no repositório.
 
-                    1. Acesse **[github.com/settings/tokens](https://github.com/settings/tokens?type=beta)** (Fine-grained tokens).
-                    2. Clique em **Generate new token**.
-                    3. Nome: `ANSEF-Sync` | Expiration: **90 dias** (ou mais).
-                    4. Em **Repository access**, selecione **Only select repositories** → `ansef-declaracoes`.
-                    5. Em **Permissions** → **Repository permissions** → **Contents**: selecione **Read and write**.
-                    6. Clique em **Generate token** e copie o token gerado.
-                    7. No **Streamlit Cloud** → **Manage app** → **Settings** → **Secrets**, adicione:
+                    #### Passo 1 — Criar o Token no GitHub
+
+                    1. Acesse **[github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)**
+                    2. Clique em **"Generate new token"**
+                    3. Preencha:
+                       - **Token name:** `ANSEF-Sync`
+                       - **Expiration:** escolha `90 days` ou `Custom` (recomendado: 1 ano)
+                       - **Description:** `Sincronização automática de dados ANSEF`
+
+                    #### Passo 2 — Repository access
+
+                    4. Em **Repository access**, selecione **"Only select repositories"**
+                    5. No dropdown, selecione o repositório **`ansef-declaracoes`**
+
+                    #### Passo 3 — Permissions (Repository permissions)
+
+                    6. Expanda a seção **"Repository permissions"**. Você verá diversas categorias em ordem alfabética:
+                       - Actions, Administration, Codespaces, **Contents** ← esta é a que precisamos!, Dependabot, Deployments, Environments, Issues, Merge queues, Metadata, Pages, Pull requests, Webhooks, Workflows...
+                    7. Localize **"Contents"** e altere de `No access` para **`Read and write`**
+                       > ⚠️ Isso habilita automaticamente a permissão **"Metadata"** como `Read-only` (é obrigatório).
+                    8. **Não altere nenhuma outra permissão** — apenas "Contents" precisa de "Read and write"
+
+                    #### Passo 4 — Gerar e copiar
+
+                    9. Clique em **"Generate token"**
+                    10. **Copie o token gerado** (começa com `github_pat_...`). Ele só será exibido uma vez!
+
+                    #### Passo 5 — Configurar no Streamlit Cloud
+
+                    11. Acesse **[share.streamlit.io](https://share.streamlit.io)** → seu app → **Manage app** (canto inferior direito)
+                    12. Clique nos **⋮** → **Settings** → aba **Secrets**
+                    13. Adicione a linha abaixo (junto com as demais chaves já existentes):
                     ```toml
                     GITHUB_TOKEN = "github_pat_seu_token_aqui"
                     ```
+                    14. Clique em **Save**. O app recarregará e a sincronização estará ativa!
+
+                    ---
+                    📌 **Referência:** [Permissões para PATs refinados — GitHub Docs](https://docs.github.com/pt/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens#repository-permissions-for-contents)
                     """)
             except Exception as e:
                 st.info(f"Módulo de sincronização GitHub não disponível: {e}")
