@@ -1689,6 +1689,7 @@ def excluir_membro(membro_id: int) -> tuple[bool, str]:
         conn.execute("DELETE FROM membros WHERE id = ?", (membro_id,))
         conn.execute("DELETE FROM config_valores WHERE beneficiario_nome = ?", (nome,))
         _sincronizar_csv_com_banco(conn)
+        _salvar_backup_precos(conn)
 
     return True, f"Integrante '{nome}' removido com sucesso do sistema."
 
@@ -1717,6 +1718,7 @@ def excluir_grupo_familiar(titular_nome: str) -> tuple[bool, str, int]:
         conn.execute("DELETE FROM uniodonto_titulares WHERE LOWER(titular_nome) = LOWER(?)", (titular_limpo,))
 
         _sincronizar_csv_com_banco(conn)
+        _salvar_backup_precos(conn)
 
     return True, f"Grupo familiar de '{titular_limpo}' ({total} integrante(s)) excluído com sucesso.", total
 
