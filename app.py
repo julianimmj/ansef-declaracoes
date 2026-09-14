@@ -1025,7 +1025,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
         metricas = contar_solicitacoes_por_status()
         aprovadas_mes = contar_aprovadas_mes_atual()
 
-        st.caption(f"📆 Declarações — Ano de referência: **{_ano_corrente}**  ·  Retenção: 5 anos")
+        st.caption(f"📆 Declarações — Ano de referência: **{_ano_corrente}**  ·  Retenção: {_ano_corrente - 4}–{_ano_corrente} (5 anos)")
 
         col_m1, col_m2, col_m3, col_m4, col_m5, col_m6 = st.columns(6)
         col_m1.metric("⏳ Pendentes", metricas.get("PENDENTE", 0))

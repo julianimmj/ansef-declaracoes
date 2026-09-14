@@ -1432,11 +1432,14 @@ def contar_aprovadas_mes_atual() -> int:
 
 
 def _limpar_registros_antigos(conn) -> int:
-    """Remove solicitações com mais de 5 anos de antiguidade (política de retenção).
+    """Remove solicitações fora da janela de retenção de 5 anos.
+    Mantém sempre os 5 anos mais recentes (ano corrente + 4 anteriores).
+    Ex: em 2026 mantém 2022–2026 e descarta 2021 e anteriores.
     O backup JSON é atualizado após a limpeza para manter consistência.
     Retorna o número de registros removidos.
     """
-    ano_limite = datetime.now().year - 5
+    ano_atual = datetime.now().year
+    ano_limite = ano_atual - 4  # mantém [ano_atual-4 .. ano_atual] = 5 anos
     try:
         cursor = conn.execute("""
             DELETE FROM solicitacoes
@@ -1444,7 +1447,10 @@ def _limpar_registros_antigos(conn) -> int:
         """, (ano_limite,))
         removidos = cursor.rowcount
         if removidos > 0:
-            logger.info(f"Retenção: {removidos} solicitação(ões) anteriores a {ano_limite} removidas.")
+            logger.info(
+                f"Retenção: {removidos} solicitação(ões) anteriores a {ano_limite} removidas. "
+                f"Janela ativa: {ano_limite}–{ano_atual}."
+            )
             _salvar_backup_solicitacoes(conn)
         return removidos
     except Exception as e:
