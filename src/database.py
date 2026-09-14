@@ -10,6 +10,7 @@ import json
 import os
 import csv
 import logging
+import threading
 from typing import Optional, Union, List, Dict, Any
 from datetime import datetime, date
 from contextlib import contextmanager
@@ -62,6 +63,25 @@ def get_connection():
         raise
     finally:
         conn.close()
+
+
+def _git_sync_background(*filepaths: str) -> None:
+    """Sincroniza arquivos com o GitHub em background (não bloqueia a UI)."""
+    def _sync():
+        try:
+            try:
+                from src.git_sync import sincronizar_arquivo, _obter_token
+            except ImportError:
+                from git_sync import sincronizar_arquivo, _obter_token
+            token = _obter_token()
+            if not token:
+                return
+            agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            for fp in filepaths:
+                sincronizar_arquivo(fp, token, f"sync: {fp} ({agora})")
+        except Exception as e:
+            logger.debug(f"Git sync background ignorado: {e}")
+    threading.Thread(target=_sync, daemon=True).start()
 
 
 def padronizar_nome(nome: str) -> str:
@@ -406,6 +426,8 @@ def _sincronizar_csv_com_banco(conn):
                 ])
     except Exception as e:
         logger.error(f"Erro ao sincronizar CSV: {e}")
+    else:
+        _git_sync_background("data/integrantes.csv")
 
 
 # ─── CÁLCULOS DE IDADE E FAIXA ETÁRIA ────────────────────────────────────────
@@ -721,6 +743,8 @@ def _salvar_backup_solicitacoes(conn=None) -> None:
                 _exec(c)
     except Exception as e:
         logger.warning(f"Erro ao salvar backup de solicitacoes: {e}")
+    else:
+        _git_sync_background("data/solicitacoes_backup.json")
 
 
 def _carregar_backup_solicitacoes(conn) -> int:
@@ -996,6 +1020,8 @@ def _salvar_backup_precos(conn=None) -> None:
                 _exec(c)
     except Exception as e:
         logger.warning(f"Erro ao salvar backup de preços: {e}")
+    else:
+        _git_sync_background("data/config_precos.json")
 
 
 def _carregar_backup_precos(conn) -> bool:

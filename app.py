@@ -2129,6 +2129,65 @@ elif modulo == "🔒 Área Restrita (Administração)":
                    SMTP_USER = "juliani.mmj@gmail.com"
                    SMTP_PASSWORD = "sua_senha_de_16_letras_aqui"
                    ADMIN_EMAIL = "juliani.mmj@gmail.com"
+                   GITHUB_TOKEN = "ghp_seu_token_aqui"
                    ```
                    - Clique em **Save**. A aplicação recarregará instantaneamente já com o envio de e-mails habilitado!
                 """)
+
+            # ── SINCRONIZAÇÃO GITHUB (PERSISTÊNCIA REAL) ──────────────────
+            st.markdown("---")
+            st.markdown("#### 🔄 Sincronização Automática com GitHub")
+            st.caption(
+                "Quando configurado, todas as alterações de preços, declarações e cadastro "
+                "são automaticamente commitadas ao repositório GitHub, garantindo persistência "
+                "real mesmo quando o container do Streamlit Cloud é reciclado."
+            )
+
+            try:
+                try:
+                    from src.git_sync import verificar_configuracao, sincronizar_dados
+                except ImportError:
+                    from git_sync import verificar_configuracao, sincronizar_dados
+
+                status_git = verificar_configuracao()
+
+                if status_git["configurado"]:
+                    st.success(f"✅ **GitHub sincronização ativa!** Repositório: `{status_git.get('repo_nome', '')}`")
+                elif status_git["token_presente"]:
+                    st.warning(f"⚠️ Token presente mas repositório inacessível: {status_git['mensagem']}")
+                else:
+                    st.warning("⚠️ **GITHUB_TOKEN não configurado.** Alterações de preços e dados podem ser perdidas quando o container reiniciar.")
+
+                col_sync1, col_sync2 = st.columns(2)
+                with col_sync1:
+                    if st.button("🔄 Sincronizar Dados Agora", type="primary", key="btn_git_sync_now", use_container_width=True):
+                        with st.spinner("Sincronizando com GitHub..."):
+                            ok_sync, msg_sync = sincronizar_dados()
+                            if ok_sync:
+                                st.success(f"✅ {msg_sync}")
+                            else:
+                                st.error(f"❌ {msg_sync}")
+
+                with col_sync2:
+                    st.markdown(
+                        "**Status:** " + ("🟢 Ativo" if status_git["configurado"] else "🔴 Inativo")
+                    )
+
+                with st.expander("📖 Como configurar o GITHUB_TOKEN"):
+                    st.markdown("""
+                    Para que as alterações persistam no Streamlit Cloud:
+
+                    1. Acesse **[github.com/settings/tokens](https://github.com/settings/tokens?type=beta)** (Fine-grained tokens).
+                    2. Clique em **Generate new token**.
+                    3. Nome: `ANSEF-Sync` | Expiration: **90 dias** (ou mais).
+                    4. Em **Repository access**, selecione **Only select repositories** → `ansef-declaracoes`.
+                    5. Em **Permissions** → **Repository permissions** → **Contents**: selecione **Read and write**.
+                    6. Clique em **Generate token** e copie o token gerado.
+                    7. No **Streamlit Cloud** → **Manage app** → **Settings** → **Secrets**, adicione:
+                    ```toml
+                    GITHUB_TOKEN = "github_pat_seu_token_aqui"
+                    ```
+                    """)
+            except Exception as e:
+                st.info(f"Módulo de sincronização GitHub não disponível: {e}")
+
