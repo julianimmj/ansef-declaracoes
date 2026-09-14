@@ -1452,6 +1452,31 @@ def _limpar_registros_antigos(conn) -> int:
         return 0
 
 
+def obter_anos_disponiveis() -> list[int]:
+    """Retorna lista ordenada (desc) dos anos de referência com solicitações no banco."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT ano_referencia FROM solicitacoes
+            ORDER BY ano_referencia DESC
+        """).fetchall()
+        return [r["ano_referencia"] for r in rows if r["ano_referencia"]]
+
+
+def contar_solicitacoes_por_status_ano(ano: int) -> dict:
+    """Retorna contagem de solicitações por status para um ano específico."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT status, COUNT(*) as total
+            FROM solicitacoes
+            WHERE ano_referencia = ?
+            GROUP BY status
+        """, (ano,)).fetchall()
+        resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
+        for r in rows:
+            resultado[r["status"]] = r["total"]
+        return resultado
+
+
 # ─── GESTÃO DE INTEGRANTES E GRUPOS FAMILIARES (CRUD ADMIN) ───────────────────
 
 def adicionar_titular(

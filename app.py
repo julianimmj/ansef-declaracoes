@@ -52,6 +52,8 @@ try:
         reajustar_valores_lote,
         contar_solicitacoes_por_status,
         contar_aprovadas_mes_atual,
+        obter_anos_disponiveis,
+        contar_solicitacoes_por_status_ano,
         obter_tabela_faixas,
         atualizar_tabela_faixa,
         reajustar_tabela_faixas_percentual,
@@ -122,6 +124,8 @@ except ImportError:
         reajustar_valores_lote,
         contar_solicitacoes_por_status,
         contar_aprovadas_mes_atual,
+        obter_anos_disponiveis,
+        contar_solicitacoes_por_status_ano,
         obter_tabela_faixas,
         atualizar_tabela_faixa,
         reajustar_tabela_faixas_percentual,
@@ -1880,7 +1884,40 @@ elif modulo == "🔒 Área Restrita (Administração)":
             if not todas:
                 st.info("Nenhuma solicitação registrada no sistema.")
             else:
-                # Filtros
+                # ── Seletor de ano e métricas do ano selecionado ──────────
+                anos_disponiveis = obter_anos_disponiveis()
+                ano_corrente = datetime.now().year
+                if not anos_disponiveis:
+                    anos_disponiveis = [ano_corrente]
+
+                col_ano_sel, col_ano_info = st.columns([1, 3])
+                with col_ano_sel:
+                    ano_selecionado = st.selectbox(
+                        "📆 Ano de referência:",
+                        options=anos_disponiveis,
+                        index=0,
+                        key="sel_ano_historico",
+                    )
+                with col_ano_info:
+                    st.caption(
+                        f"Exibindo dados de **{ano_selecionado}**. "
+                        f"Dados armazenados por 5 anos (desde {ano_corrente - 5})."
+                    )
+
+                # Métricas resumo do ano selecionado
+                metricas_ano = contar_solicitacoes_por_status_ano(ano_selecionado)
+                total_ano = sum(metricas_ano.values())
+
+                col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns(5)
+                col_h1.metric("⏳ Pendentes", metricas_ano.get("PENDENTE", 0))
+                col_h2.metric("✅ Aprovadas", metricas_ano.get("APROVADO", 0))
+                col_h3.metric("❌ Recusadas", metricas_ano.get("REJEITADO", 0))
+                col_h4.metric("🚫 Canceladas", metricas_ano.get("CANCELADO", 0))
+                col_h5.metric(f"📊 Total {ano_selecionado}", total_ano)
+
+                st.divider()
+
+                # Filtros adicionais (status e titular)
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
                     filtro_status = st.multiselect(
@@ -1898,6 +1935,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 dados_filtrados = [
                     s for s in todas
                     if s["status"] in filtro_status
+                    and s.get("ano_referencia") == ano_selecionado
                     and (not filtro_titular or filtro_titular.lower() in s["titular_nome"].lower())
                 ]
 
@@ -1928,7 +1966,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         st.download_button(
                             "📥 Exportar CSV",
                             data=csv_data,
-                            file_name="relatorio_ansef_declaracoes.csv",
+                            file_name=f"relatorio_ansef_{ano_selecionado}.csv",
                             mime="text/csv",
                             use_container_width=True,
                             key="btn_export_csv",
@@ -1937,11 +1975,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         try:
                             buffer = io.BytesIO()
                             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                                df.to_excel(writer, index=False, sheet_name="Declarações")
+                                df.to_excel(writer, index=False, sheet_name=f"Declarações {ano_selecionado}")
                             st.download_button(
                                 "📥 Exportar Excel",
                                 data=buffer.getvalue(),
-                                file_name="relatorio_ansef_declaracoes.xlsx",
+                                file_name=f"relatorio_ansef_{ano_selecionado}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True,
                                 key="btn_export_excel",
@@ -1949,7 +1987,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         except Exception as e:
                             st.caption("Exportação para Excel requer openpyxl (disponível no Streamlit Cloud). Utilize o botão de CSV ao lado.")
                 else:
-                    st.info("Nenhuma solicitação encontrada com os filtros aplicados.")
+                    st.info(f"Nenhuma solicitação encontrada para {ano_selecionado} com os filtros aplicados.")
 
             # ── GESTÃO DE BACKUP & PERSISTÊNCIA ──────────────────────────────
             st.markdown("---")
