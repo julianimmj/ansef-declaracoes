@@ -1901,7 +1901,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 with col_ano_info:
                     st.caption(
                         f"Exibindo dados de **{ano_selecionado}**. "
-                        f"Dados armazenados por 5 anos (desde {ano_corrente - 5})."
+                        f"Janela de retenção: últimos 5 anos ({ano_corrente - 4} a {ano_corrente})."
                     )
 
                 # Métricas resumo do ano selecionado
