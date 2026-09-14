@@ -306,6 +306,9 @@ def inicializar_banco():
         # Garante que o arquivo config_precos.json esteja sempre sincronizado
         _salvar_backup_precos(conn)
 
+        # Política de retenção: remove registros com mais de 5 anos
+        _limpar_registros_antigos(conn)
+
         # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado
         _garantir_pdfs_solicitacoes_aprovadas(conn)
 
@@ -1397,11 +1400,18 @@ def reajustar_valores_lote(percentual: float) -> int:
 # ─── MÉTRICAS ─────────────────────────────────────────────────────────────────
 
 def contar_solicitacoes_por_status() -> dict:
-    """Retorna contagem de solicitações por status."""
+    """Retorna contagem de solicitações por status filtrada pelo ano corrente.
+    Os balões do painel admin exibem apenas dados do ano vigente.
+    O histórico completo (até 5 anos) permanece armazenado no banco e no backup JSON.
+    """
+    ano_atual = datetime.now().year
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT status, COUNT(*) as total FROM solicitacoes GROUP BY status
-        """).fetchall()
+            SELECT status, COUNT(*) as total
+            FROM solicitacoes
+            WHERE ano_referencia = ?
+            GROUP BY status
+        """, (ano_atual,)).fetchall()
         resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
         for r in rows:
             resultado[r["status"]] = r["total"]
@@ -1409,15 +1419,37 @@ def contar_solicitacoes_por_status() -> dict:
 
 
 def contar_aprovadas_mes_atual() -> int:
-    """Retorna total de solicitações aprovadas no mês corrente."""
+    """Retorna total de solicitações aprovadas no mês corrente do ano corrente."""
     agora = datetime.now()
     with get_connection() as conn:
         row = conn.execute("""
             SELECT COUNT(*) as total FROM solicitacoes
             WHERE status = 'APROVADO'
+              AND ano_referencia = ?
               AND strftime('%Y-%m', data_analise) = ?
-        """, (agora.strftime("%Y-%m"),)).fetchone()
+        """, (agora.year, agora.strftime("%Y-%m"))).fetchone()
         return row["total"] if row else 0
+
+
+def _limpar_registros_antigos(conn) -> int:
+    """Remove solicitações com mais de 5 anos de antiguidade (política de retenção).
+    O backup JSON é atualizado após a limpeza para manter consistência.
+    Retorna o número de registros removidos.
+    """
+    ano_limite = datetime.now().year - 5
+    try:
+        cursor = conn.execute("""
+            DELETE FROM solicitacoes
+            WHERE ano_referencia < ?
+        """, (ano_limite,))
+        removidos = cursor.rowcount
+        if removidos > 0:
+            logger.info(f"Retenção: {removidos} solicitação(ões) anteriores a {ano_limite} removidas.")
+            _salvar_backup_solicitacoes(conn)
+        return removidos
+    except Exception as e:
+        logger.warning(f"Erro na limpeza de registros antigos: {e}")
+        return 0
 
 
 # ─── GESTÃO DE INTEGRANTES E GRUPOS FAMILIARES (CRUD ADMIN) ───────────────────

@@ -1015,17 +1015,21 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 logout_admin()
                 st.rerun()
 
-        # Métricas no topo
+        # Métricas no topo — exibem apenas o ano corrente
+        from datetime import datetime as _dt
+        _ano_corrente = _dt.now().year
         metricas = contar_solicitacoes_por_status()
         aprovadas_mes = contar_aprovadas_mes_atual()
 
+        st.caption(f"📆 Declarações — Ano de referência: **{_ano_corrente}**  ·  Retenção: 5 anos")
+
         col_m1, col_m2, col_m3, col_m4, col_m5, col_m6 = st.columns(6)
         col_m1.metric("⏳ Pendentes", metricas.get("PENDENTE", 0))
-        col_m2.metric("✅ Aprovadas Ativas", metricas.get("APROVADO", 0))
+        col_m2.metric("✅ Aprovadas", metricas.get("APROVADO", 0))
         col_m3.metric("❌ Recusadas", metricas.get("REJEITADO", 0))
         col_m4.metric("🚫 Canceladas", metricas.get("CANCELADO", 0))
         col_m5.metric("📅 Aprovadas no Mês", aprovadas_mes)
-        col_m6.metric("📊 Total Geral", sum(metricas.values()))
+        col_m6.metric(f"📊 Total {_ano_corrente}", sum(metricas.values()))
 
         st.divider()
 
