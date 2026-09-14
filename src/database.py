@@ -243,6 +243,11 @@ def inicializar_banco():
         count_cfg_u = conn.execute("SELECT COUNT(*) FROM config_uniodonto").fetchone()[0]
         if count_cfg_u == 0:
             conn.execute("INSERT INTO config_uniodonto (valor_por_vida) VALUES (35.00)")
+        elif count_cfg_u > 1:
+            # Limpa registros duplicados acumulados — mantém apenas o mais recente
+            ultimo = conn.execute("SELECT id FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
+            if ultimo:
+                conn.execute("DELETE FROM config_uniodonto WHERE id != ?", (ultimo["id"],))
 
         # Inicializa os titulares com Uniodonto caso tabela vazia
         count_u_tit = conn.execute("SELECT COUNT(*) FROM uniodonto_titulares").fetchone()[0]
@@ -993,7 +998,8 @@ def _salvar_backup_precos(conn=None) -> None:
 def _carregar_backup_precos(conn) -> bool:
     """
     Restaura os preços e configurações salvos em data/config_precos.json para o banco de dados.
-    Garante que os reajustes feitos pelo administrador persistam através de reinicializações e deploys.
+    Usa comparação de timestamps: só sobrescreve o banco se o JSON tiver dados mais recentes,
+    garantindo que ajustes feitos pelo administrador nunca sejam perdidos.
     """
     caminho_precos = _obter_config_precos_path()
     if not os.path.exists(caminho_precos):
@@ -1006,35 +1012,64 @@ def _carregar_backup_precos(conn) -> bool:
         if not data or not isinstance(data, dict):
             return False
 
-        # 1. Restaura Uniodonto valor por vida
+        json_ultima_att = data.get("ultima_atualizacao", "")
+
+        # 1. Restaura Uniodonto valor por vida (com comparação de timestamp)
         cfg_u = data.get("config_uniodonto", {})
         if "valor_por_vida" in cfg_u:
             val_u = float(cfg_u["valor_por_vida"])
-            dt_u = cfg_u.get("data_atualizacao", datetime.now().isoformat())
-            row_last = conn.execute("SELECT valor_por_vida FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
-            if not row_last or abs(float(row_last["valor_por_vida"]) - val_u) > 0.001:
-                conn.execute(
-                    "INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao) VALUES (?, ?)",
-                    (val_u, dt_u)
-                )
+            dt_json_u = cfg_u.get("data_atualizacao", "")
+            row_last = conn.execute(
+                "SELECT valor_por_vida, data_atualizacao FROM config_uniodonto ORDER BY id DESC LIMIT 1"
+            ).fetchone()
 
-        # 2. Restaura Uniodonto titulares e vidas
+            deve_atualizar = False
+            if not row_last:
+                deve_atualizar = True
+            elif abs(float(row_last["valor_por_vida"]) - val_u) > 0.001:
+                # Só atualiza se o JSON for mais recente que o banco
+                dt_db_str = str(row_last["data_atualizacao"]) if row_last["data_atualizacao"] else ""
+                deve_atualizar = dt_json_u > dt_db_str if (dt_json_u and dt_db_str) else True
+
+            if deve_atualizar:
+                if row_last:
+                    conn.execute(
+                        "UPDATE config_uniodonto SET valor_por_vida = ?, data_atualizacao = ? WHERE id = (SELECT id FROM config_uniodonto ORDER BY id DESC LIMIT 1)",
+                        (val_u, dt_json_u or datetime.now().isoformat())
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao) VALUES (?, ?)",
+                        (val_u, dt_json_u or datetime.now().isoformat())
+                    )
+
+        # 2. Restaura Uniodonto titulares e vidas (com comparação de timestamp)
         tit_u_list = data.get("uniodonto_titulares", [])
         if tit_u_list:
             for item in tit_u_list:
                 t_nome = padronizar_nome(item.get("titular_nome", ""))
                 v_vidas = int(item.get("vidas", 1))
-                dt_tut = item.get("data_atualizacao", datetime.now().isoformat())
-                if t_nome:
+                dt_tut = item.get("data_atualizacao", "")
+                if not t_nome:
+                    continue
+                row_db = conn.execute(
+                    "SELECT vidas, data_atualizacao FROM uniodonto_titulares WHERE LOWER(titular_nome) = LOWER(?)",
+                    (t_nome,)
+                ).fetchone()
+                if not row_db:
                     conn.execute("""
                         INSERT INTO uniodonto_titulares (titular_nome, vidas, data_atualizacao)
                         VALUES (?, ?, ?)
-                        ON CONFLICT(titular_nome) DO UPDATE SET
-                            vidas = excluded.vidas,
-                            data_atualizacao = excluded.data_atualizacao
-                    """, (t_nome, v_vidas, dt_tut))
+                    """, (t_nome, v_vidas, dt_tut or datetime.now().isoformat()))
+                else:
+                    dt_db_str = str(row_db["data_atualizacao"]) if row_db["data_atualizacao"] else ""
+                    if dt_tut and dt_tut > dt_db_str:
+                        conn.execute("""
+                            UPDATE uniodonto_titulares SET vidas = ?, data_atualizacao = ?
+                            WHERE LOWER(titular_nome) = LOWER(?)
+                        """, (v_vidas, dt_tut, t_nome))
 
-        # 3. Restaura Tabela de faixas etárias Unimed
+        # 3. Restaura Tabela de faixas etárias Unimed (com comparação de timestamp)
         faixas_list = data.get("tabela_faixas_etarias", [])
         if faixas_list:
             for fx in faixas_list:
@@ -1043,11 +1078,20 @@ def _carregar_backup_precos(conn) -> bool:
                 vc = float(fx.get("valor_coletivo", 0.0))
                 faixa_etaria = fx.get("faixa_etaria")
                 if fx_id:
-                    conn.execute("""
-                        UPDATE tabela_faixas_etarias
-                        SET valor_privativo = ?, valor_coletivo = ?
-                        WHERE id = ?
-                    """, (vp, vc, fx_id))
+                    row_db = conn.execute(
+                        "SELECT valor_privativo, valor_coletivo FROM tabela_faixas_etarias WHERE id = ?",
+                        (fx_id,)
+                    ).fetchone()
+                    if row_db:
+                        # Só sobrescreve se valores diferirem e o JSON for mais recente
+                        vals_differ = (abs(float(row_db["valor_privativo"]) - vp) > 0.001 or
+                                       abs(float(row_db["valor_coletivo"]) - vc) > 0.001)
+                        if vals_differ and json_ultima_att:
+                            conn.execute("""
+                                UPDATE tabela_faixas_etarias
+                                SET valor_privativo = ?, valor_coletivo = ?
+                                WHERE id = ?
+                            """, (vp, vc, fx_id))
                 elif faixa_etaria:
                     conn.execute("""
                         UPDATE tabela_faixas_etarias
@@ -1055,21 +1099,31 @@ def _carregar_backup_precos(conn) -> bool:
                         WHERE faixa_etaria = ?
                     """, (vp, vc, faixa_etaria))
 
-        # 4. Restaura config_valores se houver
+        # 4. Restaura config_valores se houver (com comparação de timestamp)
         cv_list = data.get("config_valores", [])
         if cv_list:
             for cv in cv_list:
                 b_nome = padronizar_nome(cv.get("beneficiario_nome", ""))
                 v_at = float(cv.get("valor_atualizado", 0.0))
-                dt_cv = cv.get("data_atualizacao", datetime.now().isoformat())
-                if b_nome:
+                dt_cv = cv.get("data_atualizacao", "")
+                if not b_nome:
+                    continue
+                row_db = conn.execute(
+                    "SELECT valor_atualizado, data_atualizacao FROM config_valores WHERE beneficiario_nome = ?",
+                    (b_nome,)
+                ).fetchone()
+                if not row_db:
                     conn.execute("""
                         INSERT INTO config_valores (beneficiario_nome, valor_atualizado, data_atualizacao)
                         VALUES (?, ?, ?)
-                        ON CONFLICT(beneficiario_nome) DO UPDATE SET
-                            valor_atualizado = excluded.valor_atualizado,
-                            data_atualizacao = excluded.data_atualizacao
-                    """, (b_nome, v_at, dt_cv))
+                    """, (b_nome, v_at, dt_cv or datetime.now().isoformat()))
+                else:
+                    dt_db_str = str(row_db["data_atualizacao"]) if row_db["data_atualizacao"] else ""
+                    if dt_cv and dt_cv > dt_db_str:
+                        conn.execute("""
+                            UPDATE config_valores SET valor_atualizado = ?, data_atualizacao = ?
+                            WHERE beneficiario_nome = ?
+                        """, (v_at, dt_cv, b_nome))
 
         return True
     except Exception as e:
@@ -1629,10 +1683,19 @@ def obter_config_uniodonto() -> dict:
 def atualizar_valor_uniodonto(novo_valor: float) -> None:
     """Atualiza o valor por vida do plano Uniodonto e sincroniza com o arquivo permanente."""
     with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao)
-            VALUES (?, ?)
-        """, (round(float(novo_valor), 2), datetime.now().isoformat()))
+        # Usa UPDATE no registro existente ao invés de INSERT append-only
+        row = conn.execute("SELECT id FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
+        agora = datetime.now().isoformat()
+        if row:
+            conn.execute("""
+                UPDATE config_uniodonto SET valor_por_vida = ?, data_atualizacao = ?
+                WHERE id = ?
+            """, (round(float(novo_valor), 2), agora, row["id"]))
+        else:
+            conn.execute("""
+                INSERT INTO config_uniodonto (valor_por_vida, data_atualizacao)
+                VALUES (?, ?)
+            """, (round(float(novo_valor), 2), agora))
         _salvar_backup_precos(conn)
 
 

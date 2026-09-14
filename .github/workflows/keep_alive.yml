@@ -2,7 +2,7 @@ name: Manter Streamlit Ativo
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
           import sys
           from playwright.async_api import async_playwright
 
-          default_url = 'https://ansef-declaracoes.streamlit.app/'
+          default_url = 'https://declara-ansef.streamlit.app/'
           env_url = os.environ.get('STREAMLIT_APP_URL', '').strip()
           app_url = env_url if env_url else default_url
 
