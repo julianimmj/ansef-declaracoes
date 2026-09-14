@@ -316,12 +316,9 @@ def inicializar_banco():
         recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn)
 
-        # Sincroniza solicitações com backup JSON permanente
-        count_sol = conn.execute("SELECT COUNT(*) FROM solicitacoes").fetchone()[0]
-        if count_sol == 0:
-            _carregar_backup_solicitacoes(conn)
-        else:
-            _salvar_backup_solicitacoes(conn)
+        # Sincroniza solicitações com backup JSON permanente (sempre mescla antes de salvar)
+        _carregar_backup_solicitacoes(conn)
+        _salvar_backup_solicitacoes(conn)
 
         # Garante que o arquivo config_precos.json esteja sempre sincronizado
         _salvar_backup_precos(conn)
@@ -792,6 +789,23 @@ def _carregar_backup_solicitacoes(conn) -> int:
                     None
                 ))
                 total_restaurados += 1
+            else:
+                # Se já existe no banco, atualiza status, análise e observações a partir do backup JSON
+                conn.execute("""
+                    UPDATE solicitacoes SET
+                        status = COALESCE(?, status),
+                        data_analise = COALESCE(?, data_analise),
+                        observacoes_admin = COALESCE(?, observacoes_admin),
+                        valor_total = COALESCE(?, valor_total)
+                    WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)
+                """, (
+                    item.get("status"),
+                    item.get("data_analise"),
+                    item.get("observacoes_admin"),
+                    item.get("valor_total"),
+                    iid,
+                    cod
+                ))
 
         if total_restaurados > 0:
             logger.info(f"Restauradas {total_restaurados} solicitacoes do backup JSON.")
