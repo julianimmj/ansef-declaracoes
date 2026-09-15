@@ -187,8 +187,13 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
-# Inicializa o banco de dados na primeira execução
-inicializar_banco()
+# Inicializa o banco de dados exatamente uma vez por inicialização do servidor
+@st.cache_resource
+def _garantir_inicializacao_banco():
+    inicializar_banco()
+    return True
+
+_garantir_inicializacao_banco()
 
 # ─── CSS CUSTOM (RESPONSIVO PARA CELULAR & DESKTOP) ──────────────────────────────
 

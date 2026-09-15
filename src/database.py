@@ -259,9 +259,10 @@ def inicializar_banco():
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, item)
 
-        # Inicializa o valor por vida da Uniodonto caso tabela vazia
+        # Inicializa o valor por vida da Uniodonto caso tabela vazia e não exista backup JSON
         count_cfg_u = conn.execute("SELECT COUNT(*) FROM config_uniodonto").fetchone()[0]
-        if count_cfg_u == 0:
+        caminho_precos = _obter_config_precos_path()
+        if count_cfg_u == 0 and not os.path.exists(caminho_precos):
             conn.execute("INSERT INTO config_uniodonto (valor_por_vida) VALUES (35.00)")
         elif count_cfg_u > 1:
             # Limpa registros duplicados acumulados — mantém apenas o mais recente
@@ -269,9 +270,9 @@ def inicializar_banco():
             if ultimo:
                 conn.execute("DELETE FROM config_uniodonto WHERE id != ?", (ultimo["id"],))
 
-        # Inicializa os titulares com Uniodonto caso tabela vazia
+        # Inicializa os titulares com Uniodonto caso tabela vazia e não exista backup JSON
         count_u_tit = conn.execute("SELECT COUNT(*) FROM uniodonto_titulares").fetchone()[0]
-        if count_u_tit == 0:
+        if count_u_tit == 0 and not os.path.exists(caminho_precos):
             titulares_iniciais_uniodonto = [
                 ("Carlos Sergio Praciano P.", 2),
                 ("Francisco Sandin Martins", 1),
@@ -284,27 +285,25 @@ def inicializar_banco():
                     (t_nome, vidas)
                 )
 
-        # Verifica se já existem membros cadastrados
-        count_membros = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
-        if count_membros == 0:
-            _carregar_csv(conn)
-        else:
-            # Atualiza correções cadastrais conhecidas em bases existentes
-            conn.execute("""
-                UPDATE membros
-                SET titular_nome = 'José Luis Cordeiro Marcheori'
-                WHERE titular_nome = 'José Luis Cordeiro Marceori'
-            """)
-            conn.execute("""
-                UPDATE membros
-                SET beneficiario_nome = 'José Luis Cordeiro Marcheori'
-                WHERE beneficiario_nome = 'José Luis Cordeiro Marceori'
-            """)
-            conn.execute("""
-                UPDATE solicitacoes
-                SET titular_nome = 'José Luis Cordeiro Marcheori'
-                WHERE titular_nome = 'José Luis Cordeiro Marceori'
-            """)
+        # Carrega a lista autoritativa de membros vigentes de data/integrantes.csv
+        _carregar_csv(conn)
+
+        # Atualiza correções cadastrais conhecidas em bases existentes
+        conn.execute("""
+            UPDATE membros
+            SET titular_nome = 'José Luis Cordeiro Marcheori'
+            WHERE titular_nome = 'José Luis Cordeiro Marceori'
+        """)
+        conn.execute("""
+            UPDATE membros
+            SET beneficiario_nome = 'José Luis Cordeiro Marcheori'
+            WHERE beneficiario_nome = 'José Luis Cordeiro Marceori'
+        """)
+        conn.execute("""
+            UPDATE solicitacoes
+            SET titular_nome = 'José Luis Cordeiro Marcheori'
+            WHERE titular_nome = 'José Luis Cordeiro Marceori'
+        """)
 
         # Padroniza todos os nomes para Title Case profissional
         padronizar_todos_nomes_banco(conn)
@@ -314,14 +313,14 @@ def inicializar_banco():
 
         # Recalcula mensalidades com base na tabela de faixas etárias e idade
         recalcular_mensalidades_membros(conn)
-        _sincronizar_csv_com_banco(conn)
+        _sincronizar_csv_com_banco(conn, sync_git=False)
 
         # Sincroniza solicitações com backup JSON permanente (sempre mescla antes de salvar)
         _carregar_backup_solicitacoes(conn)
-        _salvar_backup_solicitacoes(conn)
+        _salvar_backup_solicitacoes(conn, sync_git=False)
 
-        # Garante que o arquivo config_precos.json esteja sempre sincronizado
-        _salvar_backup_precos(conn)
+        # Garante que o arquivo config_precos.json esteja sincronizado localmente
+        _salvar_backup_precos(conn, sync_git=False)
 
         # Política de retenção: remove registros com mais de 5 anos
         _limpar_registros_antigos(conn)
@@ -331,9 +330,12 @@ def inicializar_banco():
 
 
 def _carregar_csv(conn):
-    """Carrega os dados do CSV de integrantes para a tabela membros."""
+    """Carrega os dados do CSV de integrantes para a tabela membros, garantindo sincronia total com o repositório."""
     if not os.path.exists(CSV_PATH):
         return
+
+    # Limpa a tabela membros para refletir fielmente o CSV sincronizado no repositório
+    conn.execute("DELETE FROM membros")
 
     with open(CSV_PATH, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -380,7 +382,7 @@ def _carregar_csv(conn):
             ))
 
 
-def _sincronizar_csv_com_banco(conn):
+def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
     """Atualiza data/integrantes.csv com os valores e dados cadastrais vigentes no banco."""
     try:
         rows = conn.execute("""
@@ -424,7 +426,8 @@ def _sincronizar_csv_com_banco(conn):
     except Exception as e:
         logger.error(f"Erro ao sincronizar CSV: {e}")
     else:
-        _git_sync_background("data/integrantes.csv")
+        if sync_git:
+            _git_sync_background("data/integrantes.csv")
 
 
 # ─── CÁLCULOS DE IDADE E FAIXA ETÁRIA ────────────────────────────────────────
@@ -715,7 +718,7 @@ def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool
 
 # ─── BACKUP E PERSISTÊNCIA DE SOLICITAÇÕES ────────────────────────────────────
 
-def _salvar_backup_solicitacoes(conn=None) -> None:
+def _salvar_backup_solicitacoes(conn=None, sync_git: bool = True) -> None:
     """
     Exporta todas as solicitações para um arquivo JSON permanente.
     Permite restaurar o histórico completo caso o contêiner efêmero seja recriado.
@@ -741,7 +744,8 @@ def _salvar_backup_solicitacoes(conn=None) -> None:
     except Exception as e:
         logger.warning(f"Erro ao salvar backup de solicitacoes: {e}")
     else:
-        _git_sync_background("data/solicitacoes_backup.json")
+        if sync_git:
+            _git_sync_background("data/solicitacoes_backup.json")
 
 
 def _carregar_backup_solicitacoes(conn) -> int:
@@ -959,7 +963,7 @@ def importar_backup_json(conteudo_json: str) -> tuple[bool, str, int]:
 
 # ─── BACKUP E PERSISTÊNCIA DE PREÇOS E CONFIGURAÇÕES ─────────────────────────
 
-def _salvar_backup_precos(conn=None) -> None:
+def _salvar_backup_precos(conn=None, sync_git: bool = True) -> None:
     """
     Exporta toda a configuração de preços vigentes para o arquivo JSON permanente data/config_precos.json:
     - Valor unitário por vida do plano Uniodonto (e data de atualização)
@@ -1035,7 +1039,8 @@ def _salvar_backup_precos(conn=None) -> None:
     except Exception as e:
         logger.warning(f"Erro ao salvar backup de preços: {e}")
     else:
-        _git_sync_background("data/config_precos.json")
+        if sync_git:
+            _git_sync_background("data/config_precos.json")
 
 
 def _carregar_backup_precos(conn) -> bool:
