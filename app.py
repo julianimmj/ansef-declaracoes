@@ -471,6 +471,86 @@ st.markdown("""
     .sidebar-footer-card strong {
         color: #1B3A6B;
     }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ABAS DE NAVEGAÇÃO (NOVA SOLICITAÇÃO & HISTÓRICO E DOWNLOADS)
+       Contraste sutil, legibilidade aprimorada e estilo executivo
+       ═══════════════════════════════════════════════════════════════ */
+    div[data-testid="stTabs"] {
+        margin-top: 8px;
+        margin-bottom: 14px;
+    }
+
+    div[data-testid="stTabs"] div[data-baseweb="tab-list"],
+    div[data-testid="stTabs"] div[role="tablist"] {
+        background-color: #F1F5F9 !important;
+        border: 1px solid #CBD5E1 !important;
+        border-radius: 10px !important;
+        padding: 5px !important;
+        gap: 6px !important;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+        display: inline-flex !important;
+        flex-wrap: wrap !important;
+    }
+
+    /* Oculta as linhas de highlight e borda padrão do BaseWeb */
+    div[data-testid="stTabs"] div[data-baseweb="tab-highlight"],
+    div[data-testid="stTabs"] div[data-baseweb="tab-border"] {
+        display: none !important;
+    }
+
+    /* Botão de Aba Inativo (Contraste Sutil, Legível e Nítido) */
+    div[data-testid="stTabs"] button[data-baseweb="tab"],
+    div[data-testid="stTabs"] button[role="tab"] {
+        background-color: transparent !important;
+        border: 1px solid transparent !important;
+        border-radius: 8px !important;
+        padding: 9px 20px !important;
+        margin: 0 !important;
+        height: auto !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+    div[data-testid="stTabs"] button[role="tab"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] div,
+    div[data-testid="stTabs"] button[role="tab"] div {
+        color: #334155 !important; /* Grafite escuro elegante com contraste nítido */
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        transition: color 0.2s ease !important;
+    }
+
+    /* Hover no Botão de Aba Inativo */
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover,
+    div[data-testid="stTabs"] button[role="tab"]:hover {
+        background-color: #E2E8F0 !important;
+        border-color: #CBD5E1 !important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover p,
+    div[data-testid="stTabs"] button[role="tab"]:hover p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover div,
+    div[data-testid="stTabs"] button[role="tab"]:hover div {
+        color: #0F172A !important;
+    }
+
+    /* Botão de Aba Ativo / Selecionado (Destaque Institucional ANSEF) */
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+        background: #FFFFFF !important;
+        border: 1.5px solid #1B3A6B !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(27, 58, 107, 0.18) !important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
+        color: #1B3A6B !important; /* Azul ANSEF oficial com destaque nobre */
+        font-weight: 700 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
