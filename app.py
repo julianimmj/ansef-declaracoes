@@ -928,7 +928,12 @@ if modulo == "🏠 Área do Associado":
 
         # ── ABA 2: HISTÓRICO ────────────────────────────────────────────────
         with tab_historico:
-            st.markdown("#### 📄 Histórico de Solicitações")
+            col_tit_h, col_btn_h = st.columns([4, 1.5])
+            with col_tit_h:
+                st.markdown("#### 📄 Histórico de Solicitações")
+            with col_btn_h:
+                if st.button("🔄 Atualizar Histórico", key="btn_recarregar_historico_assoc", use_container_width=True):
+                    st.rerun()
 
             solicitacoes = listar_solicitacoes_titular(titular_logado)
 

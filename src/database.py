@@ -796,19 +796,22 @@ def _carregar_backup_solicitacoes(conn) -> int:
                 ))
                 total_restaurados += 1
             else:
-                # Se já existe no banco, atualiza status, análise e observações a partir do backup JSON
+                # Se já existe no banco, atualiza status, análise, observações e sincroniza pdf_gerado a partir do backup JSON
+                st_item = item.get("status", "PENDENTE")
                 conn.execute("""
                     UPDATE solicitacoes SET
-                        status = COALESCE(?, status),
-                        data_analise = COALESCE(?, data_analise),
-                        observacoes_admin = COALESCE(?, observacoes_admin),
-                        valor_total = COALESCE(?, valor_total)
+                        status = ?,
+                        data_analise = ?,
+                        observacoes_admin = ?,
+                        valor_total = COALESCE(?, valor_total),
+                        pdf_gerado = CASE WHEN ? = 'APROVADO' THEN pdf_gerado ELSE NULL END
                     WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)
                 """, (
-                    item.get("status"),
+                    st_item,
                     item.get("data_analise"),
                     item.get("observacoes_admin"),
                     item.get("valor_total"),
+                    st_item,
                     iid,
                     cod
                 ))
@@ -1267,13 +1270,15 @@ def criar_solicitacao(titular_nome: str, titular_cpf: str,
 
 
 def listar_solicitacoes_titular(titular_nome: str) -> list[dict]:
-    """Retorna todas as solicitações de um titular, ordenadas por data desc."""
+    """Retorna todas as solicitações de um titular, ordenadas por data desc, sincronizando antes do backup JSON."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT * FROM solicitacoes
-            WHERE titular_nome = ?
+            WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))
             ORDER BY data_solicitacao DESC
-        """, (titular_nome,)).fetchall()
+        """, (nome_limpo,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -1301,8 +1306,9 @@ def listar_todas_solicitacoes() -> list[dict]:
 
 
 def obter_solicitacao(sol_id: int) -> dict | None:
-    """Retorna uma solicitação específica pelo ID."""
+    """Retorna uma solicitação específica pelo ID, sincronizando antes do backup JSON."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         row = conn.execute(
             "SELECT * FROM solicitacoes WHERE id = ?", (sol_id,)
         ).fetchone()
@@ -1500,6 +1506,7 @@ def contar_aprovadas_mes_atual() -> int:
     """Retorna total de solicitações aprovadas no mês corrente do ano corrente."""
     agora = datetime.now()
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         row = conn.execute("""
             SELECT COUNT(*) as total FROM solicitacoes
             WHERE status = 'APROVADO'
@@ -1550,6 +1557,7 @@ def obter_anos_disponiveis() -> list[int]:
 def contar_solicitacoes_por_status_ano(ano: int) -> dict:
     """Retorna contagem de solicitações por status para um ano específico."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT status, COUNT(*) as total
             FROM solicitacoes
