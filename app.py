@@ -1100,6 +1100,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
         # ── ABA 1: FILA DE PENDENTES ────────────────────────────────────────
         with tab_pend:
+            col_ref, _ = st.columns([2, 5])
+            with col_ref:
+                if st.button("🔄 Atualizar Fila de Pendentes", key="btn_recarregar_pendentes", use_container_width=True):
+                    st.rerun()
+
             pendentes = listar_solicitacoes_pendentes()
 
             if not pendentes:

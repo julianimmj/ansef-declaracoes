@@ -724,6 +724,7 @@ def _salvar_backup_solicitacoes(conn=None, sync_git: bool = True) -> None:
     Permite restaurar o histórico completo caso o contêiner efêmero seja recriado.
     O campo binário do PDF não é incluído no JSON para manter o arquivo leve e versionável no Git.
     """
+    caminho = _obter_solicitacoes_backup_path()
     try:
         def _exec(c):
             rows = c.execute("SELECT * FROM solicitacoes ORDER BY id ASC").fetchall()
@@ -732,8 +733,8 @@ def _salvar_backup_solicitacoes(conn=None, sync_git: bool = True) -> None:
                 item = dict(r)
                 item.pop("pdf_gerado", None)
                 data.append(item)
-            os.makedirs(os.path.dirname(SOLICITACOES_BACKUP_PATH), exist_ok=True)
-            with open(SOLICITACOES_BACKUP_PATH, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(caminho), exist_ok=True)
+            with open(caminho, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
         if conn:
@@ -752,11 +753,12 @@ def _carregar_backup_solicitacoes(conn) -> int:
     """
     Restaura solicitações a partir do arquivo JSON permanente caso existam e não estejam no banco.
     """
-    if not os.path.exists(SOLICITACOES_BACKUP_PATH):
+    caminho = _obter_solicitacoes_backup_path()
+    if not os.path.exists(caminho):
         return 0
 
     try:
-        with open(SOLICITACOES_BACKUP_PATH, "r", encoding="utf-8") as f:
+        with open(caminho, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not data or not isinstance(data, list):
             return 0
@@ -963,7 +965,7 @@ def importar_backup_json(conteudo_json: str) -> tuple[bool, str, int]:
 
 # ─── BACKUP E PERSISTÊNCIA DE PREÇOS E CONFIGURAÇÕES ─────────────────────────
 
-def _salvar_backup_precos(conn=None, sync_git: bool = True) -> None:
+def _salvar_backup_precos(conn=None, sync_git: bool = True) -> bool:
     """
     Exporta toda a configuração de preços vigentes para o arquivo JSON permanente data/config_precos.json:
     - Valor unitário por vida do plano Uniodonto (e data de atualização)
@@ -971,10 +973,12 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> None:
     - Tabela de faixas etárias da Unimed (valores privativo e coletivo)
     - Valores customizados de membros (config_valores)
     Garante que qualquer alteração feita pelo administrador seja gravada imediatamente em arquivo permanente.
+    Retorna True se houve modificação real nos dados e o arquivo foi gravado, False caso contrário.
     """
     caminho_precos = _obter_config_precos_path()
+    salvou = False
     try:
-        def _exec(c):
+        def _exec(c) -> bool:
             # 1. Uniodonto config
             row_u = c.execute("SELECT valor_por_vida, data_atualizacao FROM config_uniodonto ORDER BY id DESC LIMIT 1").fetchone()
             cfg_uniodonto = {
@@ -1019,8 +1023,29 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> None:
                 for r in rows_cv
             ]
 
+            existing_data = None
+            if os.path.exists(caminho_precos):
+                try:
+                    with open(caminho_precos, "r", encoding="utf-8") as f:
+                        existing_data = json.load(f)
+                except Exception:
+                    existing_data = None
+
+            dados_mudaram = True
+            ultima_att = datetime.now().isoformat()
+            if existing_data and isinstance(existing_data, dict):
+                if (existing_data.get("config_uniodonto") == cfg_uniodonto and
+                    existing_data.get("uniodonto_titulares") == titulares_u and
+                    existing_data.get("tabela_faixas_etarias") == faixas and
+                    existing_data.get("config_valores") == config_valores):
+                    dados_mudaram = False
+                    ultima_att = existing_data.get("ultima_atualizacao", ultima_att)
+
+            if not dados_mudaram and os.path.exists(caminho_precos):
+                return False
+
             payload = {
-                "ultima_atualizacao": datetime.now().isoformat(),
+                "ultima_atualizacao": ultima_att,
                 "config_uniodonto": cfg_uniodonto,
                 "uniodonto_titulares": titulares_u,
                 "tabela_faixas_etarias": faixas,
@@ -1030,17 +1055,20 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> None:
             os.makedirs(os.path.dirname(caminho_precos), exist_ok=True)
             with open(caminho_precos, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
+            return True
 
         if conn:
-            _exec(conn)
+            salvou = _exec(conn)
         else:
             with get_connection() as c:
-                _exec(c)
+                salvou = _exec(c)
     except Exception as e:
         logger.warning(f"Erro ao salvar backup de preços: {e}")
+        return False
     else:
-        if sync_git:
+        if sync_git and salvou:
             _git_sync_background("data/config_precos.json")
+        return salvou
 
 
 def _carregar_backup_precos(conn) -> bool:
@@ -1182,7 +1210,7 @@ def _carregar_backup_precos(conn) -> bool:
 def exportar_backup_precos_json() -> str:
     """Retorna o JSON completo da configuração de preços e faixas para download."""
     with get_connection() as conn:
-        _salvar_backup_precos(conn)
+        _salvar_backup_precos(conn, sync_git=False)
     caminho_precos = _obter_config_precos_path()
     if os.path.exists(caminho_precos):
         with open(caminho_precos, "r", encoding="utf-8") as f:
@@ -1250,8 +1278,9 @@ def listar_solicitacoes_titular(titular_nome: str) -> list[dict]:
 
 
 def listar_solicitacoes_pendentes() -> list[dict]:
-    """Retorna todas as solicitações pendentes de análise."""
+    """Retorna todas as solicitações pendentes de análise, sincronizando antes do backup JSON."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT * FROM solicitacoes
             WHERE status = 'PENDENTE'
@@ -1261,8 +1290,9 @@ def listar_solicitacoes_pendentes() -> list[dict]:
 
 
 def listar_todas_solicitacoes() -> list[dict]:
-    """Retorna todas as solicitações para relatório geral."""
+    """Retorna todas as solicitações para relatório geral, sincronizando antes do backup JSON."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT * FROM solicitacoes
             ORDER BY data_solicitacao DESC
@@ -1344,6 +1374,7 @@ def cancelar_aprovacao(sol_id: int, motivo: str = "") -> None:
 def listar_solicitacoes_aprovadas() -> list[dict]:
     """Retorna todas as declarações com status 'APROVADO', ordenadas pela mais recente."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT * FROM solicitacoes
             WHERE status = 'APROVADO'
@@ -1448,9 +1479,11 @@ def contar_solicitacoes_por_status() -> dict:
     """Retorna contagem de solicitações por status filtrada pelo ano corrente.
     Os balões do painel admin exibem apenas dados do ano vigente.
     O histórico completo (até 5 anos) permanece armazenado no banco e no backup JSON.
+    Sincroniza com o backup permanente para refletir solicitações recém-enviadas.
     """
     ano_atual = datetime.now().year
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT status, COUNT(*) as total
             FROM solicitacoes
@@ -1506,6 +1539,7 @@ def _limpar_registros_antigos(conn) -> int:
 def obter_anos_disponiveis() -> list[int]:
     """Retorna lista ordenada (desc) dos anos de referência com solicitações no banco."""
     with get_connection() as conn:
+        _carregar_backup_solicitacoes(conn)
         rows = conn.execute("""
             SELECT DISTINCT ano_referencia FROM solicitacoes
             ORDER BY ano_referencia DESC
