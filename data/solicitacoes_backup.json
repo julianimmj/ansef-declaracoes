@@ -13,5 +13,20 @@
     "data_solicitacao": "2026-09-11 16:33:53",
     "data_analise": "2026-09-11T15:01:01.123498",
     "observacoes_admin": null
+  },
+  {
+    "id": 11,
+    "codigo_validacao": "ANSEF-2026-FC374F9B",
+    "titular_nome": "Admir Tozo",
+    "titular_cpf": "55566655541",
+    "dependentes_incluidos": "[{\"nome\": \"Admir Tozo\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+    "mes_referencia": 1,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/09/2026",
+    "valor_total": 2094.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-09-15 00:11:31",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
