@@ -58,5 +58,20 @@
     "data_solicitacao": "2026-09-15 19:02:10",
     "data_analise": "2026-09-16T09:01:31.945838",
     "observacoes_admin": null
+  },
+  {
+    "id": 14,
+    "codigo_validacao": "ANSEF-2026-5907D4EC",
+    "titular_nome": "José Luis Cordeiro Marcheori",
+    "titular_cpf": "96808691800",
+    "dependentes_incluidos": "[{\"nome\": \"José Luis Cordeiro Marcheori\", \"parentesco\": \"Titular\", \"valor\": 1496.0}, {\"nome\": \"Teresinha Veronez M.\", \"parentesco\": \"Cônjuge\", \"valor\": 1496.0}]",
+    "mes_referencia": 4,
+    "ano_referencia": 2026,
+    "data_pagamento": "06/04/2026",
+    "valor_total": 2992.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-09-18 10:44:49",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
