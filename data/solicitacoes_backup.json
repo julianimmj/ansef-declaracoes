@@ -73,5 +73,20 @@
     "data_solicitacao": "2026-09-18 10:44:49",
     "data_analise": "2026-09-18T22:07:52.578624",
     "observacoes_admin": null
+  },
+  {
+    "id": 15,
+    "codigo_validacao": "ANSEF-2026-1BC03A06",
+    "titular_nome": "Marcio Carlos Rosa",
+    "titular_cpf": "22255588841",
+    "dependentes_incluidos": "[{\"nome\": \"Rosangela Alves Soares\", \"parentesco\": \"Cônjuge\", \"valor\": 1496.0}]",
+    "mes_referencia": 1,
+    "ano_referencia": 2026,
+    "data_pagamento": "19/09/2026",
+    "valor_total": 1496.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-09-19 13:57:15",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
