@@ -514,73 +514,106 @@ st.markdown("""
     }
 
     div[data-testid="stTabs"] div[data-baseweb="tab-list"],
-    div[data-testid="stTabs"] div[role="tablist"] {
-        background-color: #E2E8F0 !important;
+    div[data-testid="stTabs"] div[role="tablist"],
+    div[data-testid="stTabs"] [role="tablist"],
+    div[data-testid="stTabs"] [data-testid="stTabList"],
+    div[data-testid="stTabs"] .e1ac7blb3 {
+        background-color: #EEF2F6 !important;
         border: 1px solid #CBD5E1 !important;
         border-radius: 12px !important;
         padding: 6px !important;
         gap: 8px !important;
-        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05) !important;
         display: inline-flex !important;
         flex-wrap: wrap !important;
         border-bottom: 1px solid #CBD5E1 !important;
+        align-items: center !important;
     }
 
-    /* Elimina de forma definitiva a linha de sublinhado padrão do Streamlit */
+    /* Elimina de forma definitiva a linha de sublinhado padrão do Streamlit (BaseWeb e React-Aria) */
     div[data-testid="stTabs"] div[data-baseweb="tab-highlight"],
-    div[data-testid="stTabs"] div[data-baseweb="tab-border"] {
+    div[data-testid="stTabs"] div[data-baseweb="tab-border"],
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    div[data-testid="stTabs"] [data-baseweb="tab-border"],
+    div[data-testid="stTabs"] [role="tab"] > div:last-child:not(:first-child),
+    div[data-testid="stTabs"] [role="tab"] > div:nth-child(2) {
         display: none !important;
         height: 0 !important;
         width: 0 !important;
         opacity: 0 !important;
+        visibility: hidden !important;
         border: none !important;
     }
 
+    /* Remove outline preto padrão de foco no clique das abas */
+    div[data-testid="stTabs"] [role="tab"]:focus,
+    div[data-testid="stTabs"] [role="tab"]:focus-visible,
+    div[data-testid="stTabs"] div[role="tab"]:focus {
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
     /* Botão de Aba Inativo (Botão Sólido Branco com Borda e Texto Escuro) */
-    div[data-testid="stTabs"] button[data-baseweb="tab"],
-    div[data-testid="stTabs"] button[role="tab"] {
+    div[data-testid="stTabs"] [role="tab"],
+    div[data-testid="stTabs"] div[role="tab"],
+    div[data-testid="stTabs"] button[role="tab"],
+    div[data-testid="stTabs"] [data-baseweb="tab"],
+    div[data-testid="stTabs"] .e1ac7blb4 {
         background-color: #FFFFFF !important;
         border: 1.5px solid #CBD5E1 !important;
         border-radius: 9px !important;
-        padding: 10px 22px !important;
+        padding: 9px 18px !important;
         margin: 0 !important;
         height: auto !important;
+        min-height: 40px !important;
         border-bottom: 1.5px solid #CBD5E1 !important;
         text-decoration: none !important;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-        transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        outline: none !important;
     }
 
-    div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+    div[data-testid="stTabs"] [role="tab"] p,
+    div[data-testid="stTabs"] [role="tab"] span,
+    div[data-testid="stTabs"] [role="tab"] div,
     div[data-testid="stTabs"] button[role="tab"] p,
-    div[data-testid="stTabs"] button[data-baseweb="tab"] div,
-    div[data-testid="stTabs"] button[role="tab"] div {
+    div[data-testid="stTabs"] button[role="tab"] div,
+    div[data-testid="stTabs"] .e1ac7blb4 p {
         color: #1E293B !important; /* Grafite bem escuro e nítido (Slate 800) */
         font-weight: 600 !important;
-        font-size: 0.96rem !important;
+        font-size: 0.94rem !important;
         text-decoration: none !important;
+        margin: 0 !important;
+        line-height: 1.25 !important;
         transition: color 0.2s ease !important;
     }
 
     /* Hover no Botão de Aba Inativo */
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover,
-    div[data-testid="stTabs"] button[role="tab"]:hover {
+    div[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]),
+    div[data-testid="stTabs"] div[role="tab"]:hover:not([aria-selected="true"]),
+    div[data-testid="stTabs"] .e1ac7blb4:hover:not([aria-selected="true"]) {
         background-color: #F8FAFC !important;
         border-color: #94A3B8 !important;
         transform: translateY(-1px) !important;
         box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08) !important;
     }
 
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover p,
-    div[data-testid="stTabs"] button[role="tab"]:hover p,
-    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover div,
-    div[data-testid="stTabs"] button[role="tab"]:hover div {
+    div[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) p,
+    div[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) span,
+    div[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) div {
         color: #0F172A !important;
     }
 
     /* Botão de Aba Ativo / Selecionado (Preenchimento Azul Institucional ANSEF com Texto Branco) */
-    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"],
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] div[role="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] .e1ac7blb4[aria-selected="true"] {
         background: linear-gradient(135deg, #1B3A6B 0%, #1E40AF 100%) !important;
         border: 1.5px solid #1B3A6B !important;
         border-radius: 9px !important;
@@ -589,10 +622,12 @@ st.markdown("""
         border-bottom: 1.5px solid #1B3A6B !important;
     }
 
-    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] span,
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] div,
     div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
-    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div,
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div,
+    div[data-testid="stTabs"] .e1ac7blb4[aria-selected="true"] p {
         color: #FFFFFF !important; /* Branco puro com máximo contraste e destaque */
         font-weight: 700 !important;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
@@ -662,65 +697,117 @@ st.markdown("""
         }
 
         /* Contêiner das abas: linha única deslizante horizontal, sem quebra desordenada de linhas */
+        div[data-testid="stTabs"] [role="tablist"],
+        div[data-testid="stTabs"] div[role="tablist"],
+        div[data-testid="stTabs"] [data-testid="stTabList"],
         div[data-testid="stTabs"] div[data-baseweb="tab-list"],
-        div[data-testid="stTabs"] div[role="tablist"] {
+        div[data-testid="stTabs"] .e1ac7blb3 {
             width: 100% !important;
+            max-width: 100% !important;
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             overflow-x: auto !important;
             overflow-y: hidden !important;
             -webkit-overflow-scrolling: touch !important;
-            padding: 6px !important;
-            gap: 6px !important;
-            background-color: #E2E8F0 !important;
+            padding: 6px 8px !important;
+            gap: 7px !important;
+            background-color: #EEF2F6 !important;
             border: 1px solid #CBD5E1 !important;
             border-radius: 12px !important;
             box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08) !important;
             scrollbar-width: none !important; /* Firefox */
             -ms-overflow-style: none !important; /* IE */
         }
+        div[data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar,
+        div[data-testid="stTabs"] div[role="tablist"]::-webkit-scrollbar,
+        div[data-testid="stTabs"] [data-testid="stTabList"]::-webkit-scrollbar,
         div[data-testid="stTabs"] div[data-baseweb="tab-list"]::-webkit-scrollbar,
-        div[data-testid="stTabs"] div[role="tablist"]::-webkit-scrollbar {
+        div[data-testid="stTabs"] .e1ac7blb3::-webkit-scrollbar {
             display: none !important; /* Chrome / Safari */
         }
 
         /* Botões de aba no celular: pílulas compactas, sem quebra de texto interna */
-        div[data-testid="stTabs"] button[data-baseweb="tab"],
-        div[data-testid="stTabs"] button[role="tab"] {
+        div[data-testid="stTabs"] [role="tab"],
+        div[data-testid="stTabs"] div[role="tab"],
+        div[data-testid="stTabs"] button[role="tab"],
+        div[data-testid="stTabs"] [data-baseweb="tab"],
+        div[data-testid="stTabs"] .e1ac7blb4 {
             flex: 0 0 auto !important;
             white-space: nowrap !important;
             padding: 8px 14px !important;
-            min-height: 42px !important;
+            min-height: 40px !important;
             border-radius: 8px !important;
-            font-size: 0.85rem !important;
+            font-size: 0.84rem !important;
             background-color: #FFFFFF !important;
             border: 1px solid #CBD5E1 !important;
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            outline: none !important;
+            cursor: pointer !important;
         }
 
-        div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+        div[data-testid="stTabs"] [role="tab"] p,
+        div[data-testid="stTabs"] [role="tab"] span,
+        div[data-testid="stTabs"] [role="tab"] div,
         div[data-testid="stTabs"] button[role="tab"] p,
-        div[data-testid="stTabs"] button[data-baseweb="tab"] div,
-        div[data-testid="stTabs"] button[role="tab"] div {
-            font-size: 0.85rem !important;
+        div[data-testid="stTabs"] button[role="tab"] div,
+        div[data-testid="stTabs"] .e1ac7blb4 p {
+            font-size: 0.84rem !important;
             white-space: nowrap !important;
             margin: 0 !important;
             line-height: 1.2 !important;
+            color: #1E293B !important;
         }
 
         /* Aba ativa no celular: azul institucional com alto destaque */
-        div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"],
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+        div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+        div[data-testid="stTabs"] div[role="tab"][aria-selected="true"],
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"],
+        div[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"],
+        div[data-testid="stTabs"] .e1ac7blb4[aria-selected="true"] {
             background: linear-gradient(135deg, #1B3A6B 0%, #1E40AF 100%) !important;
             border: 1px solid #1B3A6B !important;
             box-shadow: 0 2px 8px rgba(27, 58, 107, 0.28) !important;
         }
 
-        /* Quando houver exatamente 2 abas (Portal do Associado), divide 50%/50% */
-        div[data-testid="stTabs"]:has(button[role="tab"]:nth-child(2):last-child) button[role="tab"],
-        div[data-testid="stTabs"]:has(button[data-baseweb="tab"]:nth-child(2):last-child) button[data-baseweb="tab"] {
-            flex: 1 1 50% !important;
+        div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p,
+        div[data-testid="stTabs"] [role="tab"][aria-selected="true"] span,
+        div[data-testid="stTabs"] [role="tab"][aria-selected="true"] div,
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div,
+        div[data-testid="stTabs"] .e1ac7blb4[aria-selected="true"] p {
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+        }
+
+        /* Elimina a linha de sublinhado e foco também no mobile */
+        div[data-testid="stTabs"] [role="tab"] > div:last-child:not(:first-child),
+        div[data-testid="stTabs"] [role="tab"] > div:nth-child(2),
+        div[data-testid="stTabs"] div[data-baseweb="tab-highlight"],
+        div[data-testid="stTabs"] div[data-baseweb="tab-border"],
+        div[data-testid="stTabs"] [data-baseweb="tab-highlight"],
+        div[data-testid="stTabs"] [data-baseweb="tab-border"] {
+            display: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            border: none !important;
+        }
+
+        div[data-testid="stTabs"] [role="tab"]:focus,
+        div[data-testid="stTabs"] [role="tab"]:focus-visible,
+        div[data-testid="stTabs"] div[role="tab"]:focus {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Quando houver apenas 2 abas (Portal do Associado), divide 50%/50% */
+        div[data-testid="stTabs"]:not(:has([role="tab"]:nth-child(3))) [role="tab"] {
+            flex: 1 1 48% !important;
             justify-content: center !important;
             text-align: center !important;
             padding: 8px 6px !important;
