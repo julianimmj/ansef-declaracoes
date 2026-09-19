@@ -402,12 +402,15 @@ st.markdown("""
         padding-left: 4px;
     }
 
-    /* Oculta os círculos de radio padrão na sidebar (indicador visual do radio) */
+    /* Oculta os círculos de radio padrão na sidebar (indicador visual do radio)
+       Estrutura DOM real: label[data-baseweb="radio"] > span(input) + div(wrapper) > div(circulo) + div(texto)
+       O circulo é: label > div > div:first-child */
+    [data-testid="stSidebar"] label[data-baseweb="radio"] > div > div:first-child,
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div > div:first-child,
     [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-of-type,
     [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type,
     [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child,
-    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child,
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
+    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
         display: none !important;
     }
 
@@ -425,6 +428,7 @@ st.markdown("""
     [data-testid="stSidebar"] label[data-baseweb="radio"],
     [data-testid="stSidebar"] div[role="radiogroup"] > label,
     section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+        position: relative !important;
         background: #FFFFFF !important;
         border: 1.5px solid #E2E8F0 !important;
         border-radius: 10px !important;
