@@ -302,41 +302,187 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 
-    /* Otimizações para Dispositivos Móveis (Smartphones <= 768px) */
+    /* ═══════════════════════════════════════════════════════════════
+       OTIMIZAÇÕES RESPONSIVAS PARA DISPOSITIVOS MÓVEIS (SMARTPHONES <= 768px)
+       Preserva rigorosamente o layout Desktop e refina a experiência Mobile
+       ═══════════════════════════════════════════════════════════════ */
     @media (max-width: 768px) {
+        /* Contêiner principal com margens confortáveis no celular */
         .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 2rem !important;
-            padding-left: 0.8rem !important;
-            padding-right: 0.8rem !important;
+            padding-top: 0.8rem !important;
+            padding-bottom: 2.2rem !important;
+            padding-left: 0.9rem !important;
+            padding-right: 0.9rem !important;
+            max-width: 100% !important;
         }
 
-        /* Alvos de toque com altura mínima para facilitar uso com dedos */
-        .stButton button, .stDownloadButton button {
-            min-height: 46px !important;
-            font-size: 0.98rem !important;
+        /* Cabeçalho institucional mais compacto e proporcional */
+        .main-header {
+            padding: 4px 0 2px 0 !important;
+        }
+        .main-header img {
+            width: 64px !important;
+            margin-bottom: 6px !important;
+        }
+        .main-header h2 {
+            font-size: 1.05rem !important;
+            line-height: 1.3 !important;
+            letter-spacing: -0.2px !important;
+        }
+        .main-header h3 {
+            font-size: 0.92rem !important;
+            margin-top: 2px !important;
+        }
+        .main-header p {
+            font-size: 0.78rem !important;
+            margin-top: 2px !important;
+        }
+
+        /* Tipografia de títulos e subtítulos nas páginas internas */
+        h1, h2, h3 {
+            line-height: 1.28 !important;
+        }
+        h3 {
+            font-size: 1.18rem !important;
+        }
+        h4 {
+            font-size: 1.02rem !important;
+        }
+        h5 {
+            font-size: 0.94rem !important;
+        }
+
+        /* ── ABAS DE NAVEGAÇÃO SEGMENTADAS NO CELULAR ── */
+        div[data-testid="stTabs"] {
+            margin-top: 8px !important;
+            margin-bottom: 14px !important;
+        }
+        div[data-testid="stTabs"] div[data-baseweb="tab-list"],
+        div[data-testid="stTabs"] div[role="tablist"] {
+            width: 100% !important;
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding: 4px !important;
+            gap: 6px !important;
+            border-radius: 10px !important;
+            scrollbar-width: none !important;
+        }
+        div[data-testid="stTabs"] div[data-baseweb="tab-list"]::-webkit-scrollbar,
+        div[data-testid="stTabs"] div[role="tablist"]::-webkit-scrollbar {
+            display: none !important;
+        }
+
+        /* Botões de aba em tamanho de toque com cantos arredondados */
+        div[data-testid="stTabs"] button[data-baseweb="tab"],
+        div[data-testid="stTabs"] button[role="tab"] {
+            padding: 8px 14px !important;
+            min-height: 42px !important;
+            font-size: 0.86rem !important;
+            white-space: nowrap !important;
+            flex: 0 0 auto !important;
             border-radius: 8px !important;
         }
 
-        /* Inputs e seletores confortáveis para toque no celular */
-        .stTextInput input, .stNumberInput input, .stDateInput input, .stSelectbox select {
-            min-height: 42px !important;
-            font-size: 0.95rem !important;
+        /* Quando houver 2 abas (ex: Portal do Associado), divide 50%/50% perfeitamente */
+        div[data-testid="stTabs"]:has(button[role="tab"]:nth-child(2):last-child) button[role="tab"],
+        div[data-testid="stTabs"]:has(button[data-baseweb="tab"]:nth-child(2):last-child) button[data-baseweb="tab"] {
+            flex: 1 1 50% !important;
+            justify-content: center !important;
+            text-align: center !important;
+            padding: 8px 6px !important;
+            font-size: 0.84rem !important;
         }
 
-        /* Métricas do painel administrativo em grade 2x2 no celular */
+        /* ── BOTÕES & FORMULÁRIOS NO CELULAR ── */
+        .stButton button, .stDownloadButton button {
+            min-height: 46px !important;
+            font-size: 0.95rem !important;
+            font-weight: 600 !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+        }
+
+        /* Campos de texto, números, data e seleção confortáveis para os dedos */
+        .stTextInput input, .stNumberInput input, .stDateInput input, .stSelectbox select {
+            min-height: 44px !important;
+            font-size: 0.94rem !important;
+            border-radius: 8px !important;
+        }
+
+        /* Labels de campos proporcionais */
+        label[data-testid="stWidgetLabel"] p {
+            font-size: 0.88rem !important;
+            font-weight: 600 !important;
+            margin-bottom: 3px !important;
+        }
+
+        /* Checkboxes com texto claro e legível */
+        div[data-testid="stCheckbox"] {
+            margin-bottom: 2px !important;
+        }
+        div[data-testid="stCheckbox"] label span p {
+            font-size: 0.88rem !important;
+            font-weight: 600 !important;
+            line-height: 1.35 !important;
+        }
+
+        /* ── CARTÕES DE MÉTRICAS EM GRADE 2x2 ── */
         div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {
+            display: flex !important;
             flex-wrap: wrap !important;
-            gap: 10px !important;
+            gap: 8px !important;
         }
         div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div {
-            flex: 1 1 calc(50% - 10px) !important;
-            min-width: 130px !important;
+            flex: 1 1 calc(50% - 8px) !important;
+            min-width: 135px !important;
+        }
+        div[data-testid="stMetric"] {
+            padding: 10px 12px !important;
+            border-radius: 8px !important;
+            min-height: 74px !important;
+        }
+        div[data-testid="stMetric"] label[data-testid="stMetricLabel"] p {
+            font-size: 0.76rem !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            font-size: 1.35rem !important;
         }
 
-        /* Expander com margem confortável */
+        /* ── EXPANDERS E BANNERS NO CELULAR ── */
         div[data-testid="stExpander"] {
             margin-bottom: 10px !important;
+            border-radius: 8px !important;
+        }
+        div[data-testid="stExpander"] summary {
+            padding: 10px 12px !important;
+            font-size: 0.88rem !important;
+        }
+
+        div[data-testid="stAlert"] {
+            padding: 10px 12px !important;
+            font-size: 0.86rem !important;
+            border-radius: 8px !important;
+        }
+
+        /* ── SIDEBAR DRAWER NO CELULAR ── */
+        section[data-testid="stSidebar"] {
+            min-width: 285px !important;
+            max-width: 86vw !important;
+        }
+        section[data-testid="stSidebar"] .sidebar-brand-card {
+            padding: 12px 10px !important;
+            margin-bottom: 14px !important;
+        }
+        section[data-testid="stSidebar"] .sidebar-brand-card img {
+            width: 48px !important;
+        }
+        section[data-testid="stSidebar"] .sidebar-footer-card {
+            margin-top: 16px !important;
+            padding: 10px !important;
+            font-size: 0.72rem !important;
         }
     }
 
