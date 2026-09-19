@@ -433,12 +433,26 @@ st.markdown("""
         box-shadow: none !important;
     }
 
-    /* Transforma as opções do radio em cartões de navegação executivos profissionais */
+    /* Contêiner do radiogroup na sidebar: ocupa 100% da largura e estica os cards uniformemente */
+    [data-testid="stSidebar"] div[role="radiogroup"],
+    section[data-testid="stSidebar"] div[role="radiogroup"],
+    [data-testid="stSidebar"] [data-testid="stRadio"] > div {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0px !important;
+    }
+
+    /* Transforma as opções do radio em cartões de navegação executivos de dimensões perfeitamente idênticas */
     [data-testid="stSidebar"] div[role="radiogroup"] label,
     section[data-testid="stSidebar"] div[role="radiogroup"] label,
     [data-testid="stSidebar"] div[role="radiogroup"] label.e1mpz0hj2,
     [data-testid="stSidebar"] div[role="radiogroup"] label.st-emotion-cache-i2sazo {
         position: relative !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        min-height: 52px !important;
         background-color: #FFFFFF !important;
         border: 1.5px solid #CBD5E1 !important;
         border-left: 5px solid #94A3B8 !important;
@@ -450,6 +464,17 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
         display: flex !important;
         align-items: center !important;
+        justify-content: flex-start !important;
+    }
+
+    /* Garante que o wrapper interno ocupe 100% da largura do card */
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        box-sizing: border-box !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div > div:last-child {
         width: 100% !important;
     }
 
