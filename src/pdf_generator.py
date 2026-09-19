@@ -78,28 +78,29 @@ def gerar_pdf_declaracao(
     except (json.JSONDecodeError, TypeError):
         dependentes = []
 
-    # Separa dependentes (exclui o titular da lista de dependentes)
+    # Verifica se o titular foi selecionado (presente no JSON de selecionados)
+    titular_selecionado = any(
+        d.get("nome", "").upper() == titular_nome.upper() for d in dependentes
+    )
+
+    # Separa dependentes (exclui o titular da lista de dependentes para o texto de introdução)
     deps_lista = [d for d in dependentes if d.get("nome", "").upper() != titular_nome.upper()]
 
-    # Todos os beneficiários (titular + dependentes) para a tabela
+    # Todos os beneficiários para a tabela — apenas os efetivamente selecionados
     todos = []
-    # Encontra o titular nos dados
-    titular_valor = 0.0
-    for d in dependentes:
-        if d.get("nome", "").upper() == titular_nome.upper():
-            titular_valor = d.get("valor", 0.0)
-            break
 
-    # Se o titular não aparece nos dependentes_json, calcula pelo total - soma deps
-    soma_deps = sum(d.get("valor", 0.0) for d in deps_lista)
-    if titular_valor == 0.0 and valor_total > 0:
-        titular_valor = valor_total - soma_deps
-
-    todos.append({
-        "nome": titular_nome.upper(),
-        "parentesco": "Titular",
-        "valor_formatado": formatar_moeda(titular_valor),
-    })
+    if titular_selecionado:
+        # Titular foi selecionado: incluí-lo na tabela
+        titular_valor = 0.0
+        for d in dependentes:
+            if d.get("nome", "").upper() == titular_nome.upper():
+                titular_valor = d.get("valor", 0.0)
+                break
+        todos.append({
+            "nome": titular_nome.upper(),
+            "parentesco": "Titular",
+            "valor_formatado": formatar_moeda(titular_valor),
+        })
 
     for d in deps_lista:
         todos.append({
