@@ -402,19 +402,29 @@ st.markdown("""
         padding-left: 4px;
     }
 
-    /* Oculta os círculos de radio padrão na sidebar */
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child,
+    /* Oculta os círculos de radio padrão na sidebar (indicador visual do radio) */
+    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-of-type,
+    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type,
+    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child,
     [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child,
-    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
         display: none !important;
     }
 
+    /* Oculta também o span wrapper do input radio real */
+    [data-testid="stSidebar"] label[data-baseweb="radio"] > span:first-child,
+    [data-testid="stSidebar"] div[role="radiogroup"] > label > span:first-child {
+        position: absolute !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+
     /* Transforma as opções do radio em cartões de navegação profissionais */
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label,
+    [data-testid="stSidebar"] label[data-baseweb="radio"],
     [data-testid="stSidebar"] div[role="radiogroup"] > label,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"],
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label {
         background: #FFFFFF !important;
         border: 1.5px solid #E2E8F0 !important;
         border-radius: 10px !important;
@@ -430,10 +440,9 @@ st.markdown("""
     }
 
     /* Hover no card não selecionado */
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover,
+    [data-testid="stSidebar"] label[data-baseweb="radio"]:hover,
     [data-testid="stSidebar"] div[role="radiogroup"] > label:hover,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover,
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label:hover {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
         border-color: #1B3A6B !important;
         border-left-color: #0284C7 !important;
         background: #F1F5F9 !important;
@@ -441,10 +450,11 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(27, 58, 107, 0.08) !important;
     }
 
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label p,
+    /* Texto dos cards */
+    [data-testid="stSidebar"] label[data-baseweb="radio"] p,
+    [data-testid="stSidebar"] label[data-baseweb="radio"] div p,
     [data-testid="stSidebar"] div[role="radiogroup"] > label p,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label p,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label span {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label p {
         font-size: 0.92rem !important;
         font-weight: 600 !important;
         color: #334155 !important;
@@ -454,10 +464,9 @@ st.markdown("""
     }
 
     /* Estado Ativo / Selecionado */
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked),
+    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked),
     [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked),
-    [data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked),
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked) {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
         background: linear-gradient(135deg, #1B3A6B 0%, #1E40AF 100%) !important;
         border-color: #1B3A6B !important;
         border-left: 4px solid #FCD34D !important;
@@ -465,10 +474,10 @@ st.markdown("""
         transform: translateX(3px) !important;
     }
 
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p,
+    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) p,
+    [data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) div p,
     [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p,
-    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span {
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {
         color: #FFFFFF !important;
         font-weight: 700 !important;
         text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
