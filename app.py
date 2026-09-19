@@ -407,10 +407,7 @@ st.markdown("""
        O circulo é: label > div > div:first-child */
     [data-testid="stSidebar"] label[data-baseweb="radio"] > div > div:first-child,
     [data-testid="stSidebar"] div[role="radiogroup"] label > div > div:first-child,
-    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-of-type,
-    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type,
-    [data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child,
-    [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {
+    [data-testid="stSidebar"] [data-testid="stRadio"] label > div > div:first-child {
         display: none !important;
     }
 
