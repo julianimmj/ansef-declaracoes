@@ -88,5 +88,20 @@
     "data_solicitacao": "2026-09-19 13:57:15",
     "data_analise": "2026-09-19T13:57:29.967915",
     "observacoes_admin": "[CANCELADO EM 19/09/2026 às 13:58]"
+  },
+  {
+    "id": 16,
+    "codigo_validacao": "ANSEF-2026-6E502647",
+    "titular_nome": "Vera Lucia Damasio Marques e S.",
+    "titular_cpf": "01603640860",
+    "dependentes_incluidos": "[{\"nome\": \"Vera Lucia Damasio Marques e S.\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+    "mes_referencia": 1,
+    "ano_referencia": 2026,
+    "data_pagamento": "07/01/2026",
+    "valor_total": 2094.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-09-20 23:32:37",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
