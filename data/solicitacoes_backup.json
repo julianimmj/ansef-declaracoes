@@ -118,5 +118,20 @@
     "data_solicitacao": "2026-09-20 23:33:02",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 18,
+    "codigo_validacao": "ANSEF-2026-CC2222DF",
+    "titular_nome": "Vera Lucia Damasio Marques e S.",
+    "titular_cpf": "01603640860",
+    "dependentes_incluidos": "[{\"nome\": \"Vera Lucia Damasio Marques e S.\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+    "mes_referencia": 3,
+    "ano_referencia": 2026,
+    "data_pagamento": "04/03/2026",
+    "valor_total": 2094.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-09-20 23:33:22",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
