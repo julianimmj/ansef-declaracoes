@@ -384,10 +384,10 @@
     "ano_referencia": 2026,
     "data_pagamento": "01/09/2026",
     "valor_total": 1855.0,
-    "status": "PENDENTE",
+    "status": "REJEITADO",
     "data_solicitacao": "2026-09-25 23:12:40",
-    "data_analise": null,
-    "observacoes_admin": null
+    "data_analise": "2026-09-28T16:09:57.801912",
+    "observacoes_admin": "Solicitação em duplicidade"
   },
   {
     "id": 36,
