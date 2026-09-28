@@ -11,6 +11,7 @@ import os
 import csv
 import logging
 import threading
+import time
 from typing import Optional, Union, List, Dict, Any
 from datetime import datetime, date
 from contextlib import contextmanager
@@ -51,9 +52,10 @@ TABELA_FAIXAS_PADRAO = [
 @contextmanager
 def get_connection():
     """Context manager para conexões SQLite thread-safe."""
-    conn = sqlite3.connect(_obter_db_path(), check_same_thread=False)
+    conn = sqlite3.connect(_obter_db_path(), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
@@ -752,6 +754,7 @@ def _salvar_backup_solicitacoes(conn=None, sync_git: bool = True) -> None:
 def _carregar_backup_solicitacoes(conn) -> int:
     """
     Restaura solicitações a partir do arquivo JSON permanente caso existam e não estejam no banco.
+    Cada registro é processado individualmente para que uma falha em um item não impeça os demais.
     """
     caminho = _obter_solicitacoes_backup_path()
     if not os.path.exists(caminho):
@@ -765,56 +768,60 @@ def _carregar_backup_solicitacoes(conn) -> int:
 
         total_restaurados = 0
         for item in data:
-            cod = item.get("codigo_validacao")
-            iid = item.get("id")
-            existe = conn.execute(
-                "SELECT id FROM solicitacoes WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
-                (iid, cod)
-            ).fetchone()
-            if not existe:
-                conn.execute("""
-                    INSERT INTO solicitacoes (
-                        id, codigo_validacao, titular_nome, titular_cpf, dependentes_incluidos,
-                        mes_referencia, ano_referencia, data_pagamento, valor_total,
-                        status, data_solicitacao, data_analise, observacoes_admin, pdf_gerado
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    item.get("id"),
-                    item.get("codigo_validacao"),
-                    item.get("titular_nome"),
-                    item.get("titular_cpf"),
-                    item.get("dependentes_incluidos", "[]"),
-                    item.get("mes_referencia"),
-                    item.get("ano_referencia"),
-                    item.get("data_pagamento"),
-                    item.get("valor_total"),
-                    item.get("status", "PENDENTE"),
-                    item.get("data_solicitacao"),
-                    item.get("data_analise"),
-                    item.get("observacoes_admin"),
-                    None
-                ))
-                total_restaurados += 1
-            else:
-                # Se já existe no banco, atualiza status, análise, observações e sincroniza pdf_gerado a partir do backup JSON
-                st_item = item.get("status", "PENDENTE")
-                conn.execute("""
-                    UPDATE solicitacoes SET
-                        status = ?,
-                        data_analise = ?,
-                        observacoes_admin = ?,
-                        valor_total = COALESCE(?, valor_total),
-                        pdf_gerado = CASE WHEN ? = 'APROVADO' THEN pdf_gerado ELSE NULL END
-                    WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)
-                """, (
-                    st_item,
-                    item.get("data_analise"),
-                    item.get("observacoes_admin"),
-                    item.get("valor_total"),
-                    st_item,
-                    iid,
-                    cod
-                ))
+            try:
+                cod = item.get("codigo_validacao")
+                iid = item.get("id")
+                existe = conn.execute(
+                    "SELECT id FROM solicitacoes WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
+                    (iid, cod)
+                ).fetchone()
+                if not existe:
+                    conn.execute("""
+                        INSERT INTO solicitacoes (
+                            id, codigo_validacao, titular_nome, titular_cpf, dependentes_incluidos,
+                            mes_referencia, ano_referencia, data_pagamento, valor_total,
+                            status, data_solicitacao, data_analise, observacoes_admin, pdf_gerado
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        item.get("id"),
+                        item.get("codigo_validacao"),
+                        item.get("titular_nome"),
+                        item.get("titular_cpf"),
+                        item.get("dependentes_incluidos", "[]"),
+                        item.get("mes_referencia"),
+                        item.get("ano_referencia"),
+                        item.get("data_pagamento"),
+                        item.get("valor_total"),
+                        item.get("status", "PENDENTE"),
+                        item.get("data_solicitacao"),
+                        item.get("data_analise"),
+                        item.get("observacoes_admin"),
+                        None
+                    ))
+                    total_restaurados += 1
+                else:
+                    # Se já existe no banco, atualiza status, análise, observações e sincroniza pdf_gerado a partir do backup JSON
+                    st_item = item.get("status", "PENDENTE")
+                    conn.execute("""
+                        UPDATE solicitacoes SET
+                            status = ?,
+                            data_analise = ?,
+                            observacoes_admin = ?,
+                            valor_total = COALESCE(?, valor_total),
+                            pdf_gerado = CASE WHEN ? = 'APROVADO' THEN pdf_gerado ELSE NULL END
+                        WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)
+                    """, (
+                        st_item,
+                        item.get("data_analise"),
+                        item.get("observacoes_admin"),
+                        item.get("valor_total"),
+                        st_item,
+                        iid,
+                        cod
+                    ))
+            except (sqlite3.IntegrityError, sqlite3.OperationalError) as e:
+                logger.debug(f"Backup: ignorando item id={item.get('id')}: {e}")
+                continue
 
         if total_restaurados > 0:
             logger.info(f"Restauradas {total_restaurados} solicitacoes do backup JSON.")
@@ -1486,34 +1493,54 @@ def contar_solicitacoes_por_status() -> dict:
     Os balões do painel admin exibem apenas dados do ano vigente.
     O histórico completo (até 5 anos) permanece armazenado no banco e no backup JSON.
     Sincroniza com o backup permanente para refletir solicitações recém-enviadas.
+    Inclui retry automático para lidar com locks temporários do banco.
     """
     ano_atual = datetime.now().year
-    with get_connection() as conn:
-        _carregar_backup_solicitacoes(conn)
-        rows = conn.execute("""
-            SELECT status, COUNT(*) as total
-            FROM solicitacoes
-            WHERE ano_referencia = ?
-            GROUP BY status
-        """, (ano_atual,)).fetchall()
-        resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
-        for r in rows:
-            resultado[r["status"]] = r["total"]
-        return resultado
+    for tentativa in range(3):
+        try:
+            with get_connection() as conn:
+                _carregar_backup_solicitacoes(conn)
+                rows = conn.execute("""
+                    SELECT status, COUNT(*) as total
+                    FROM solicitacoes
+                    WHERE ano_referencia = ?
+                    GROUP BY status
+                """, (ano_atual,)).fetchall()
+                resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
+                for r in rows:
+                    resultado[r["status"]] = r["total"]
+                return resultado
+        except sqlite3.OperationalError as e:
+            logger.warning(f"contar_solicitacoes_por_status: tentativa {tentativa+1}/3 falhou: {e}")
+            if tentativa < 2:
+                time.sleep(0.5 * (tentativa + 1))
+            else:
+                logger.error(f"contar_solicitacoes_por_status: todas as tentativas falharam")
+                return {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
 
 
 def contar_aprovadas_mes_atual() -> int:
-    """Retorna total de solicitações aprovadas no mês corrente do ano corrente."""
+    """Retorna total de solicitações aprovadas no mês corrente do ano corrente.
+    Inclui retry automático para lidar com locks temporários do banco.
+    """
     agora = datetime.now()
-    with get_connection() as conn:
-        _carregar_backup_solicitacoes(conn)
-        row = conn.execute("""
-            SELECT COUNT(*) as total FROM solicitacoes
-            WHERE status = 'APROVADO'
-              AND ano_referencia = ?
-              AND strftime('%Y-%m', data_analise) = ?
-        """, (agora.year, agora.strftime("%Y-%m"))).fetchone()
-        return row["total"] if row else 0
+    for tentativa in range(3):
+        try:
+            with get_connection() as conn:
+                _carregar_backup_solicitacoes(conn)
+                row = conn.execute("""
+                    SELECT COUNT(*) as total FROM solicitacoes
+                    WHERE status = 'APROVADO'
+                      AND ano_referencia = ?
+                      AND strftime('%Y-%m', data_analise) = ?
+                """, (agora.year, agora.strftime("%Y-%m"))).fetchone()
+                return row["total"] if row else 0
+        except sqlite3.OperationalError as e:
+            logger.warning(f"contar_aprovadas_mes_atual: tentativa {tentativa+1}/3 falhou: {e}")
+            if tentativa < 2:
+                time.sleep(0.5 * (tentativa + 1))
+            else:
+                return 0
 
 
 def _limpar_registros_antigos(conn) -> int:
@@ -1544,30 +1571,50 @@ def _limpar_registros_antigos(conn) -> int:
 
 
 def obter_anos_disponiveis() -> list[int]:
-    """Retorna lista ordenada (desc) dos anos de referência com solicitações no banco."""
-    with get_connection() as conn:
-        _carregar_backup_solicitacoes(conn)
-        rows = conn.execute("""
-            SELECT DISTINCT ano_referencia FROM solicitacoes
-            ORDER BY ano_referencia DESC
-        """).fetchall()
-        return [r["ano_referencia"] for r in rows if r["ano_referencia"]]
+    """Retorna lista ordenada (desc) dos anos de referência com solicitações no banco.
+    Inclui retry automático para lidar com locks temporários do banco.
+    """
+    for tentativa in range(3):
+        try:
+            with get_connection() as conn:
+                _carregar_backup_solicitacoes(conn)
+                rows = conn.execute("""
+                    SELECT DISTINCT ano_referencia FROM solicitacoes
+                    ORDER BY ano_referencia DESC
+                """).fetchall()
+                return [r["ano_referencia"] for r in rows if r["ano_referencia"]]
+        except sqlite3.OperationalError as e:
+            logger.warning(f"obter_anos_disponiveis: tentativa {tentativa+1}/3 falhou: {e}")
+            if tentativa < 2:
+                time.sleep(0.5 * (tentativa + 1))
+            else:
+                return [datetime.now().year]
 
 
 def contar_solicitacoes_por_status_ano(ano: int) -> dict:
-    """Retorna contagem de solicitações por status para um ano específico."""
-    with get_connection() as conn:
-        _carregar_backup_solicitacoes(conn)
-        rows = conn.execute("""
-            SELECT status, COUNT(*) as total
-            FROM solicitacoes
-            WHERE ano_referencia = ?
-            GROUP BY status
-        """, (ano,)).fetchall()
-        resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
-        for r in rows:
-            resultado[r["status"]] = r["total"]
-        return resultado
+    """Retorna contagem de solicitações por status para um ano específico.
+    Inclui retry automático para lidar com locks temporários do banco.
+    """
+    for tentativa in range(3):
+        try:
+            with get_connection() as conn:
+                _carregar_backup_solicitacoes(conn)
+                rows = conn.execute("""
+                    SELECT status, COUNT(*) as total
+                    FROM solicitacoes
+                    WHERE ano_referencia = ?
+                    GROUP BY status
+                """, (ano,)).fetchall()
+                resultado = {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
+                for r in rows:
+                    resultado[r["status"]] = r["total"]
+                return resultado
+        except sqlite3.OperationalError as e:
+            logger.warning(f"contar_solicitacoes_por_status_ano: tentativa {tentativa+1}/3 falhou: {e}")
+            if tentativa < 2:
+                time.sleep(0.5 * (tentativa + 1))
+            else:
+                return {"PENDENTE": 0, "APROVADO": 0, "REJEITADO": 0, "CANCELADO": 0}
 
 
 # ─── GESTÃO DE INTEGRANTES E GRUPOS FAMILIARES (CRUD ADMIN) ───────────────────
