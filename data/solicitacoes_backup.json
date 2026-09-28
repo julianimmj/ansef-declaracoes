@@ -369,10 +369,10 @@
     "ano_referencia": 2026,
     "data_pagamento": "01/09/2026",
     "valor_total": 1855.0,
-    "status": "APROVADO",
+    "status": "CANCELADO",
     "data_solicitacao": "2026-09-25 23:11:45",
     "data_analise": "2026-09-28T16:09:07.256252",
-    "observacoes_admin": null
+    "observacoes_admin": "[CANCELADO EM 28/09/2026 às 21:01]"
   },
   {
     "id": 35,
