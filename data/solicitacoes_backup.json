@@ -643,5 +643,20 @@
     "data_solicitacao": "2026-10-02 12:12:45",
     "data_analise": "2026-10-02T12:20:48.312969",
     "observacoes_admin": null
+  },
+  {
+    "id": 53,
+    "codigo_validacao": "ANSEF-2026-E20AEB01",
+    "titular_nome": "Fabio de Paula Guerra",
+    "titular_cpf": "07656928723",
+    "dependentes_incluidos": "[{\"nome\": \"Fabio de Paula Guerra\", \"parentesco\": \"Titular\", \"valor\": 845.0}, {\"nome\": \"Letícia Maria de Rosa O. G.\", \"parentesco\": \"Cônjuge\", \"valor\": 845.0}]",
+    "mes_referencia": 4,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/04/2026",
+    "valor_total": 1690.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-02 19:49:34",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
