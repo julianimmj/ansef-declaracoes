@@ -583,5 +583,20 @@
     "data_solicitacao": "2026-10-02 12:11:19",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 49,
+    "codigo_validacao": "ANSEF-2026-4A610F47",
+    "titular_nome": "Marcio Carlos Rosa",
+    "titular_cpf": "57966346668",
+    "dependentes_incluidos": "[{\"nome\": \"Marcio Carlos Rosa\", \"parentesco\": \"Titular\", \"valor\": 1496.0}, {\"nome\": \"Danilo Soares Rosa\", \"parentesco\": \"Filho(a)\", \"valor\": 340.0}, {\"nome\": \"Rosangela Alves Soares\", \"parentesco\": \"Cônjuge\", \"valor\": 1496.0}]",
+    "mes_referencia": 6,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/06/2026",
+    "valor_total": 3332.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-02 12:11:44",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
