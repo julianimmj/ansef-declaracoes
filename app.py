@@ -1451,44 +1451,49 @@ if modulo == "🏠 Área do Associado":
 
             # Seleção de meses
             st.markdown("##### 📆 Meses incluídos na Declaração")
-            st.caption("Marque os meses do ano que devem constar na declaração anual.")
+            st.caption("Escolha os meses do ano que devem constar no demonstrativo anual. Todos os 12 meses já vêm selecionados por padrão.")
 
-            col_sel_all, _ = st.columns([2, 3])
-            with col_sel_all:
-                selecionar_todos_meses = st.checkbox(
-                    "Selecionar todos os 12 meses (Ano Completo)",
-                    value=False,
-                    key="check_todos_meses_anual",
-                )
+            # Inicializa os 12 meses como marcados por padrão na sessão
+            for m in range(1, 13):
+                key_m = f"mes_anual_{m}"
+                if key_m not in st.session_state:
+                    st.session_state[key_m] = True
+
+            col_b_all, col_b_none, _ = st.columns([2, 1.8, 2.5])
+            with col_b_all:
+                if st.button("📅 Marcar Todos (12 Meses)", key="btn_marcar_todos_anual", use_container_width=True):
+                    for m in range(1, 13):
+                        st.session_state[f"mes_anual_{m}"] = True
+                    st.rerun()
+            with col_b_none:
+                if st.button("🔄 Desmarcar Todos", key="btn_desmarcar_todos_anual", use_container_width=True):
+                    for m in range(1, 13):
+                        st.session_state[f"mes_anual_{m}"] = False
+                    st.rerun()
 
             meses_selecionados = []
-            if selecionar_todos_meses:
-                meses_selecionados = list(range(1, 13))
-                st.info("✅ Todos os 12 meses estão selecionados.")
-            else:
-                # Renderiza linha por linha (3 linhas x 4 colunas) para garantir
-                # a ordem cronológica estrita tanto no Desktop quanto no Celular (mobile)
-                meses_lista = list(MESES_OPCOES.items())
-                for r in range(0, 12, 4):
-                    cols_m = st.columns(4)
-                    for c in range(4):
-                        idx_m = r + c
-                        if idx_m < 12:
-                            nome_m, num_m = meses_lista[idx_m]
-                            with cols_m[c]:
-                                if st.checkbox(
-                                    nome_m,
-                                    value=False,
-                                    key=f"mes_anual_{num_m}",
-                                ):
-                                    meses_selecionados.append(num_m)
-                meses_selecionados.sort()
+            meses_lista = list(MESES_OPCOES.items())
+            for r in range(0, 12, 4):
+                cols_m = st.columns(4)
+                for c in range(4):
+                    idx_m = r + c
+                    if idx_m < 12:
+                        nome_m, num_m = meses_lista[idx_m]
+                        with cols_m[c]:
+                            if st.checkbox(
+                                nome_m,
+                                key=f"mes_anual_{num_m}",
+                            ):
+                                meses_selecionados.append(num_m)
+            meses_selecionados.sort()
 
             qtd_meses_sel = len(meses_selecionados)
             if meses_selecionados:
                 st.markdown(
                     f"**Meses selecionados ({qtd_meses_sel}):** {descrever_meses(meses_selecionados).capitalize()}"
                 )
+            else:
+                st.warning("⚠️ Selecione pelo menos um mês acima para que o sistema calcule os valores da declaração anual.")
 
             st.markdown("---")
             st.markdown("##### 👥 Integrantes do Grupo Familiar")
@@ -1563,8 +1568,7 @@ if modulo == "🏠 Área do Associado":
                 min_value=0.0,
                 step=0.01,
                 format="%.2f",
-                key="valor_total_anual_input",
-                help="Calculado pela soma de (valor mensal × quantidade de meses) de cada beneficiário selecionado.",
+                help="Calculado automaticamente pela soma de (valor mensal × quantidade de meses) de cada beneficiário selecionado.",
             )
 
             st.markdown("")
