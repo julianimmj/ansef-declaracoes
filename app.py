@@ -80,6 +80,19 @@ try:
         importar_backup_precos_json,
         CONFIG_PRECOS_PATH,
         DB_PATH,
+        # Declarações anuais
+        criar_declaracao_anual,
+        listar_declaracoes_anuais_titular,
+        listar_declaracoes_anuais_pendentes,
+        listar_declaracoes_anuais_aprovadas,
+        listar_todas_declaracoes_anuais,
+        contar_declaracoes_anuais_pendentes,
+        aprovar_declaracao_anual,
+        rejeitar_declaracao_anual,
+        cancelar_declaracao_anual,
+        obter_pdf_declaracao_anual,
+        exportar_backup_anuais_json,
+        importar_backup_anuais_json,
     )
     from src.auth import (
         login_associado,
@@ -93,10 +106,11 @@ try:
     from src.email_service import (
         notificar_administrador_nova_solicitacao,
         notificar_administrador_migracao_faixa,
+        notificar_administrador_nova_declaracao_anual,
         verificar_status_smtp,
         enviar_email_teste,
     )
-    from src.pdf_generator import gerar_pdf_declaracao
+    from src.pdf_generator import gerar_pdf_declaracao, gerar_pdf_declaracao_anual
     from src.utils import (
         formatar_cpf,
         formatar_moeda,
@@ -104,6 +118,9 @@ try:
         limpar_cpf,
         mes_por_extenso,
         MESES_OPCOES,
+        normalizar_meses,
+        descrever_meses,
+        abreviar_meses,
     )
 except ImportError:
     from database import (
@@ -152,6 +169,19 @@ except ImportError:
         importar_backup_precos_json,
         CONFIG_PRECOS_PATH,
         DB_PATH,
+        # Declarações anuais
+        criar_declaracao_anual,
+        listar_declaracoes_anuais_titular,
+        listar_declaracoes_anuais_pendentes,
+        listar_declaracoes_anuais_aprovadas,
+        listar_todas_declaracoes_anuais,
+        contar_declaracoes_anuais_pendentes,
+        aprovar_declaracao_anual,
+        rejeitar_declaracao_anual,
+        cancelar_declaracao_anual,
+        obter_pdf_declaracao_anual,
+        exportar_backup_anuais_json,
+        importar_backup_anuais_json,
     )
     from auth import (
         login_associado,
@@ -165,10 +195,11 @@ except ImportError:
     from email_service import (
         notificar_administrador_nova_solicitacao,
         notificar_administrador_migracao_faixa,
+        notificar_administrador_nova_declaracao_anual,
         verificar_status_smtp,
         enviar_email_teste,
     )
-    from pdf_generator import gerar_pdf_declaracao
+    from pdf_generator import gerar_pdf_declaracao, gerar_pdf_declaracao_anual
     from utils import (
         formatar_cpf,
         formatar_moeda,
@@ -176,6 +207,9 @@ except ImportError:
         limpar_cpf,
         mes_por_extenso,
         MESES_OPCOES,
+        normalizar_meses,
+        descrever_meses,
+        abreviar_meses,
     )
 
 # ─── INICIALIZAÇÃO ─────────────────────────────────────────────────────────────
@@ -1167,7 +1201,7 @@ if modulo == "🏠 Área do Associado":
                 </div>
                 """, unsafe_allow_html=True)
 
-        tab_nova, tab_historico = st.tabs(["📝 Nova Solicitação", "📄 Histórico e Downloads"])
+        tab_nova, tab_anual, tab_historico = st.tabs(["📝 Declaração Mensal", "📅 Declaração Anual", "📄 Histórico e Downloads"])
 
         # ── ABA 1: NOVA SOLICITAÇÃO ─────────────────────────────────────────
         with tab_nova:
@@ -1364,7 +1398,199 @@ if modulo == "🏠 Área do Associado":
                         st.caption("📧 Notificação enviada por e-mail para a administração.")
                     st.balloons()
 
-        # ── ABA 2: HISTÓRICO ────────────────────────────────────────────────
+        # ── ABA 2: DECLARAÇÃO ANUAL ──────────────────────────────────────────
+        with tab_anual:
+            st.markdown("#### 📅 Nova Solicitação de Declaração Anual de Pagamento")
+            st.caption(
+                "Solicite uma declaração consolidada que agrupa vários meses do mesmo ano. "
+                "Escolha o ano, os meses desejados e os integrantes que devem constar na declaração."
+            )
+
+            # CPF do titular
+            cpf_input_anual = st.text_input(
+                "CPF do Titular *",
+                placeholder="000.000.000-00",
+                max_chars=14,
+                help="Informe o CPF do titular para constar na declaração anual.",
+                key="cpf_anual_input",
+            )
+
+            ano_atual = date.today().year
+            ano_anual_sel = st.selectbox(
+                "Ano de Referência *",
+                options=list(range(ano_atual, ano_atual - 5, -1)),
+                key="ano_anual_sel",
+            )
+
+            # Seleção de meses
+            st.markdown("##### 📆 Meses incluídos na Declaração")
+            st.caption("Marque os meses do ano que devem constar na declaração anual.")
+
+            col_sel_all, _ = st.columns([2, 3])
+            with col_sel_all:
+                selecionar_todos_meses = st.checkbox(
+                    "Selecionar todos os 12 meses (Ano Completo)",
+                    value=False,
+                    key="check_todos_meses_anual",
+                )
+
+            meses_selecionados = []
+            if selecionar_todos_meses:
+                meses_selecionados = list(range(1, 13))
+                st.info("✅ Todos os 12 meses estão selecionados.")
+            else:
+                meses_nomes = list(MESES_OPCOES.keys())
+                # 3 colunas x 4 linhas de checkboxes de meses
+                cols_m = st.columns(4)
+                for idx_m, nome_m in enumerate(meses_nomes):
+                    with cols_m[idx_m % 4]:
+                        if st.checkbox(
+                            nome_m,
+                            value=False,
+                            key=f"mes_anual_{MESES_OPCOES[nome_m]}",
+                        ):
+                            meses_selecionados.append(MESES_OPCOES[nome_m])
+
+            qtd_meses_sel = len(meses_selecionados)
+            if meses_selecionados:
+                st.markdown(
+                    f"**Meses selecionados ({qtd_meses_sel}):** {descrever_meses(meses_selecionados).capitalize()}"
+                )
+
+            st.markdown("---")
+            st.markdown("##### 👥 Integrantes do Grupo Familiar")
+            st.caption(
+                "Marque os beneficiários que devem constar na declaração anual. "
+                "O valor mensal de cada integrante pode ser ajustado."
+            )
+
+            beneficiarios_anual = []
+            valor_soma_anual = 0.0
+
+            for i, membro in enumerate(grupo):
+                col_membro_a, col_valor_a = st.columns([3, 1.8])
+
+                m_id = membro.get("id", i)
+                parentesco = membro.get("grau_parentesco", "Titular")
+                idade_txt = f"{membro.get('idade_atual')} anos" if membro.get("idade_atual") is not None else ""
+                faixa_txt = membro.get("faixa_calculada", "")
+
+                with col_membro_a:
+                    label_box_a = f"**{membro['beneficiario_nome']}** ({parentesco}) — {idade_txt} | {faixa_txt}"
+                    checked_a = st.checkbox(
+                        label_box_a,
+                        value=True,
+                        key=f"check_anual_{m_id}_{i}",
+                    )
+
+                with col_valor_a:
+                    valor_base_a = membro.get("valor_vigente", 0.0) or membro.get("valor_mensalidade", 0.0) or 0.0
+                    valor_edit_a = st.number_input(
+                        "Valor Mensal (R$)",
+                        value=float(valor_base_a),
+                        min_value=0.0,
+                        step=0.01,
+                        format="%.2f",
+                        key=f"valor_anual_{m_id}_{i}",
+                        label_visibility="collapsed",
+                        help=f"Valor mensal de {membro['beneficiario_nome']}",
+                    )
+
+                if checked_a:
+                    total_benef = round(valor_edit_a * qtd_meses_sel, 2)
+                    beneficiarios_anual.append({
+                        "nome": membro["beneficiario_nome"],
+                        "parentesco": parentesco,
+                        "valor_mensal": valor_edit_a,
+                        "qtd_meses": qtd_meses_sel,
+                        "valor_total": total_benef,
+                    })
+                    valor_soma_anual += total_benef
+
+            st.markdown("---")
+
+            # Resumo e totais
+            if beneficiarios_anual and qtd_meses_sel > 0:
+                st.markdown("##### 📊 Resumo da Declaração Anual")
+
+                dados_resumo = []
+                for b in beneficiarios_anual:
+                    dados_resumo.append({
+                        "Beneficiário": b["nome"],
+                        "Parentesco": b["parentesco"],
+                        "Valor Mensal": formatar_moeda(b["valor_mensal"]),
+                        "Meses": b["qtd_meses"],
+                        "Total": formatar_moeda(b["valor_total"]),
+                    })
+                st.dataframe(pd.DataFrame(dados_resumo), use_container_width=True, hide_index=True)
+
+            valor_total_anual = st.number_input(
+                "💰 Valor Total da Declaração Anual (R$)",
+                value=float(valor_soma_anual),
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="valor_total_anual_input",
+                help="Calculado pela soma de (valor mensal × quantidade de meses) de cada beneficiário selecionado.",
+            )
+
+            st.markdown("")
+
+            if st.button(
+                "📨 Enviar Declaração Anual para Análise",
+                type="primary",
+                use_container_width=True,
+                key="btn_enviar_anual",
+            ):
+                erros_anual = []
+                if not cpf_input_anual or not validar_cpf(cpf_input_anual):
+                    erros_anual.append("CPF inválido. Informe 11 dígitos.")
+                if not meses_selecionados:
+                    erros_anual.append("Selecione pelo menos um mês.")
+                if valor_total_anual <= 0:
+                    erros_anual.append("O valor total deve ser maior que zero.")
+                if not beneficiarios_anual:
+                    erros_anual.append("Selecione pelo menos um beneficiário.")
+
+                if erros_anual:
+                    for e in erros_anual:
+                        st.error(e)
+                else:
+                    cpf_limpo_anual = limpar_cpf(cpf_input_anual)
+                    meses_json = json.dumps(meses_selecionados, ensure_ascii=False)
+                    benef_json = json.dumps(beneficiarios_anual, ensure_ascii=False)
+
+                    with st.spinner("Registrando solicitação de declaração anual..."):
+                        dec_id = criar_declaracao_anual(
+                            titular_nome=titular_logado,
+                            titular_cpf=cpf_limpo_anual,
+                            ano_ref=ano_anual_sel,
+                            meses_json=meses_json,
+                            beneficiarios_json=benef_json,
+                            valor_total=valor_total_anual,
+                        )
+
+                        # Notificação por e-mail
+                        sucesso_email_a, msg_email_a = notificar_administrador_nova_declaracao_anual(
+                            titular_nome=titular_logado,
+                            titular_cpf=cpf_limpo_anual,
+                            ano_referencia=ano_anual_sel,
+                            meses_descricao=descrever_meses(meses_selecionados),
+                            qtd_meses=qtd_meses_sel,
+                            beneficiarios=beneficiarios_anual,
+                            valor_total=valor_total_anual,
+                        )
+
+                    st.success(
+                        f"✅ Sua solicitação de declaração anual **#{dec_id}** foi enviada com sucesso!\n\n"
+                        "Aguarde a aprovação do administrador em até **3 dias úteis**.\n\n"
+                        "Acompanhe o andamento na aba **Histórico e Downloads**."
+                    )
+                    if sucesso_email_a:
+                        st.caption("📧 Notificação enviada por e-mail para a administração.")
+                    st.balloons()
+
+        # ── ABA 3: HISTÓRICO ────────────────────────────────────────────────
         with tab_historico:
             col_tit_h, col_btn_h = st.columns([4, 1.5])
             with col_tit_h:
@@ -1436,6 +1662,81 @@ if modulo == "🏠 Área do Associado":
                         if sol.get("codigo_validacao"):
                             st.caption(f"Código de autenticidade: {sol['codigo_validacao']}")
 
+            # ── Declarações Anuais ──────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 📅 Declarações Anuais")
+
+            dec_anuais_hist = listar_declaracoes_anuais_titular(titular_logado)
+
+            if not dec_anuais_hist:
+                st.info("Nenhuma declaração anual registrada até o momento.")
+            else:
+                for dec_a in dec_anuais_hist:
+                    status_a = dec_a["status"]
+                    if status_a == "PENDENTE":
+                        badge_a = '<span class="status-pendente">⏳ PENDENTE</span>'
+                    elif status_a == "APROVADO":
+                        badge_a = '<span class="status-aprovado">✅ APROVADO</span>'
+                    elif status_a == "CANCELADO":
+                        badge_a = '<span class="status-cancelado">🚫 CANCELADO PELA ADMINISTRAÇÃO</span>'
+                    else:
+                        badge_a = '<span class="status-rejeitado">❌ REJEITADO</span>'
+
+                    meses_desc = abreviar_meses(dec_a.get("meses_incluidos", "[]"))
+                    data_sol_a = dec_a["data_solicitacao"][:10] if dec_a.get("data_solicitacao") else ""
+
+                    with st.expander(
+                        f"📅 Anual #{dec_a['id']} — {dec_a['ano_referencia']} ({meses_desc}) — "
+                        f"{formatar_moeda(dec_a['valor_total'])} — {status_a}"
+                    ):
+                        st.markdown(badge_a, unsafe_allow_html=True)
+                        st.markdown(f"**Data da Solicitação:** {data_sol_a}")
+                        st.markdown(f"**Ano:** {dec_a['ano_referencia']}")
+                        st.markdown(f"**Meses:** {descrever_meses(dec_a.get('meses_incluidos', '[]')).capitalize()}")
+                        st.markdown(f"**Valor Total:** {formatar_moeda(dec_a['valor_total'])}")
+                        st.markdown(f"**CPF:** {formatar_cpf(dec_a['titular_cpf'])}")
+
+                        # Tabela de beneficiários
+                        try:
+                            benefs_a = json.loads(dec_a.get("beneficiarios", "[]"))
+                        except (json.JSONDecodeError, TypeError):
+                            benefs_a = []
+                        if benefs_a:
+                            st.markdown("**Beneficiários:**")
+                            for ba in benefs_a:
+                                st.write(
+                                    f"- **{ba.get('nome')}** ({ba.get('parentesco', 'Titular')}) — "
+                                    f"{formatar_moeda(ba.get('valor_mensal', 0))}/mês × {ba.get('qtd_meses', 0)} = "
+                                    f"{formatar_moeda(ba.get('valor_total', 0))}"
+                                )
+
+                        if status_a == "APROVADO":
+                            pdf_data_a = dec_a.get("pdf_gerado") or obter_pdf_declaracao_anual(dec_a["id"])
+                            if pdf_data_a:
+                                st.download_button(
+                                    label="📥 Baixar Declaração Anual (PDF)",
+                                    data=pdf_data_a,
+                                    file_name=f"Declaracao_Anual_ANSEF_{titular_logado}_{dec_a['ano_referencia']}.pdf",
+                                    mime="application/pdf",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key=f"dl_pdf_anual_assoc_{dec_a['id']}",
+                                )
+                            else:
+                                st.info("O PDF está sendo processado pela administração.")
+                        elif status_a == "CANCELADO":
+                            st.warning(
+                                "⚠️ **Esta aprovação foi cancelada/revogada pela administração.** "
+                                "O documento não está mais disponível para download."
+                            )
+                            if dec_a.get("observacoes_admin"):
+                                st.info(f"**Observações da Administração:** {dec_a['observacoes_admin']}")
+
+                        if status_a == "REJEITADO" and dec_a.get("observacoes_admin"):
+                            st.error(f"**Motivo da recusa:** {dec_a['observacoes_admin']}")
+
+                        if dec_a.get("codigo_validacao"):
+                            st.caption(f"Código de autenticidade: {dec_a['codigo_validacao']}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ÁREA RESTRITA DO ADMINISTRADOR
@@ -1482,6 +1783,13 @@ elif modulo == "🔒 Área Restrita (Administração)":
         col_m4.metric("🚫 Canceladas", metricas.get("CANCELADO", 0))
         col_m5.metric("📅 Aprovadas no Mês", aprovadas_mes)
         col_m6.metric(f"📊 Total {_ano_corrente}", sum(metricas.values()))
+
+        anuais_pend_qtd = contar_declaracoes_anuais_pendentes()
+        if anuais_pend_qtd > 0:
+            st.warning(
+                f"📅 **Atenção:** Há **{anuais_pend_qtd}** solicitação(ões) de **Declaração Anual** aguardando sua análise. "
+                "Acesse a aba **📅 Declarações Anuais** para revisar e emitir."
+            )
 
         st.divider()
 
@@ -1531,9 +1839,10 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     ])
                     st.dataframe(df_migs, use_container_width=True, hide_index=True)
 
-        tab_pend, tab_aprovadas, tab_reajuste, tab_gestao_grupos, tab_uniodonto, tab_relatorio, tab_config_email = st.tabs([
+        tab_pend, tab_aprovadas, tab_anuais_admin, tab_reajuste, tab_gestao_grupos, tab_uniodonto, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "📄 Declarações Aprovadas",
+            "📅 Declarações Anuais",
             "💰 Tabela de Preços e Reajustes",
             "👥 Gestão de Integrantes & Grupos",
             "🦷 Plano Odontológico (Uniodonto)",
@@ -1818,6 +2127,326 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                     cancelar_aprovacao(sol_ap["id"], motivo_canc)
                                     st.success(f"Declaração #{sol_ap['id']} cancelada com sucesso!")
                                     st.rerun()
+
+        # ── ABA: DECLARAÇÕES ANUAIS (ADMINISTRAÇÃO) ─────────────────────────
+        with tab_anuais_admin:
+            st.markdown("#### 📅 Declarações Anuais de Pagamento")
+            st.caption(
+                "Gerencie as solicitações de declarações anuais consolidadas. "
+                "Revise os meses e beneficiários incluídos, aprove gerando o PDF oficial, "
+                "rejeite solicitações inconsistentes ou consulte/cancele documentos já emitidos."
+            )
+
+            subtab_anual_pend, subtab_anual_aprov = st.tabs([
+                "📋 Fila de Pendentes",
+                "📄 Declarações Aprovadas",
+            ])
+
+            with subtab_anual_pend:
+                col_ref_a, _ = st.columns([2, 5])
+                with col_ref_a:
+                    if st.button("🔄 Atualizar Fila Anual", key="btn_recarregar_anuais_pendentes", use_container_width=True):
+                        st.rerun()
+
+                pendentes_a = listar_declaracoes_anuais_pendentes()
+
+                if not pendentes_a:
+                    st.success("✅ Nenhuma solicitação de declaração anual pendente no momento.")
+                else:
+                    st.markdown(f"**{len(pendentes_a)}** solicitação(ões) anual(is) aguardando análise:")
+
+                    for dec_p in pendentes_a:
+                        meses_p_desc = abreviar_meses(dec_p.get("meses_incluidos", "[]"))
+                        header_p = (
+                            f"#{dec_p['id']} — {dec_p['titular_nome']} — "
+                            f"Ano {dec_p['ano_referencia']} ({meses_p_desc}) — "
+                            f"{formatar_moeda(dec_p['valor_total'])}"
+                        )
+
+                        with st.expander(header_p, expanded=False):
+                            st.markdown(f"**Titular:** {dec_p['titular_nome']}")
+                            st.markdown(f"**CPF:** {formatar_cpf(dec_p['titular_cpf'])}")
+                            st.markdown(f"**Data da Solicitação:** {dec_p['data_solicitacao'][:19]}")
+
+                            st.markdown("---")
+                            st.markdown("##### ✏️ Revisão e Edição dos Dados da Declaração Anual")
+
+                            # Ano de referência
+                            col_ano_p, col_mes_info = st.columns([1, 2])
+                            with col_ano_p:
+                                ano_anual_edit = st.number_input(
+                                    "Ano de Referência",
+                                    value=dec_p["ano_referencia"],
+                                    min_value=2020,
+                                    max_value=2030,
+                                    key=f"adm_ano_anual_{dec_p['id']}",
+                                )
+                            with col_mes_info:
+                                st.caption("Selecione os meses que devem constar no demonstrativo anual:")
+
+                            # Meses incluídos
+                            meses_originais = normalizar_meses(dec_p.get("meses_incluidos", "[]"))
+                            col_all_m, _ = st.columns([2, 3])
+                            with col_all_m:
+                                adm_check_all = st.checkbox(
+                                    "Marcar todos os 12 meses",
+                                    value=len(meses_originais) == 12,
+                                    key=f"adm_all_meses_{dec_p['id']}",
+                                )
+
+                            meses_editados_a = []
+                            if adm_check_all:
+                                meses_editados_a = list(range(1, 13))
+                            else:
+                                cols_m_adm = st.columns(4)
+                                for idx_m, (nome_mes, num_mes) in enumerate(MESES_OPCOES.items()):
+                                    with cols_m_adm[idx_m % 4]:
+                                        if st.checkbox(
+                                            nome_mes,
+                                            value=num_mes in meses_originais,
+                                            key=f"adm_mes_a_{dec_p['id']}_{num_mes}",
+                                        ):
+                                            meses_editados_a.append(num_mes)
+
+                            qtd_meses_adm = len(meses_editados_a)
+                            st.markdown(
+                                f"**Meses selecionados ({qtd_meses_adm}):** "
+                                f"{descrever_meses(meses_editados_a).capitalize() if meses_editados_a else 'Nenhum'}"
+                            )
+
+                            st.markdown("##### 👥 Beneficiários na Declaração Anual")
+                            st.caption("Marque/desmarque os integrantes e ajuste o valor mensal individual.")
+
+                            try:
+                                benefs_sol = json.loads(dec_p.get("beneficiarios", "[]"))
+                            except (json.JSONDecodeError, TypeError):
+                                benefs_sol = []
+
+                            mapa_benef_sol = {b["nome"]: b for b in benefs_sol if isinstance(b, dict)}
+
+                            grupo_adm = buscar_grupo_familiar(dec_p["titular_nome"])
+                            benefs_editados = []
+                            soma_anual_adm = 0.0
+
+                            for j_m, membro_g in enumerate(grupo_adm):
+                                nome_g = membro_g["beneficiario_nome"]
+                                parentesco_g = membro_g.get("grau_parentesco", "Titular")
+                                b_sol = mapa_benef_sol.get(nome_g)
+                                estava_inc = b_sol is not None
+
+                                col_b_info, col_b_val = st.columns([3, 1.8])
+                                with col_b_info:
+                                    inc_adm = st.checkbox(
+                                        f"**{nome_g}** ({parentesco_g})",
+                                        value=estava_inc,
+                                        key=f"adm_inc_anual_{dec_p['id']}_{j_m}",
+                                    )
+                                with col_b_val:
+                                    val_base_g = b_sol.get("valor_mensal") if b_sol else (
+                                        membro_g.get("valor_vigente") or membro_g.get("valor_mensalidade") or 0.0
+                                    )
+                                    val_m_adm = st.number_input(
+                                        "Valor Mensal (R$)",
+                                        value=float(val_base_g),
+                                        min_value=0.0,
+                                        step=0.01,
+                                        format="%.2f",
+                                        key=f"adm_val_anual_{dec_p['id']}_{j_m}",
+                                        label_visibility="collapsed",
+                                        help=f"Valor mensal de {nome_g}",
+                                    )
+
+                                if inc_adm:
+                                    total_benef_adm = round(val_m_adm * qtd_meses_adm, 2)
+                                    benefs_editados.append({
+                                        "nome": nome_g,
+                                        "parentesco": parentesco_g,
+                                        "valor_mensal": val_m_adm,
+                                        "qtd_meses": qtd_meses_adm,
+                                        "valor_total": total_benef_adm,
+                                    })
+                                    soma_anual_adm += total_benef_adm
+
+                            st.markdown("---")
+                            valor_final_anual_adm = st.number_input(
+                                "💰 Valor Total Final da Declaração Anual (R$)",
+                                value=float(soma_anual_adm),
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f",
+                                key=f"adm_vtotal_anual_{dec_p['id']}",
+                                help="Calculado pela soma dos valores de cada beneficiário × meses.",
+                            )
+
+                            st.markdown("")
+                            col_aprov_a, col_rejeit_a = st.columns(2)
+
+                            with col_aprov_a:
+                                if st.button(
+                                    "✅ Aprovar e Gerar Declaração Anual",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key=f"aprovar_anual_{dec_p['id']}",
+                                ):
+                                    if not meses_editados_a:
+                                        st.error("Selecione pelo menos um mês antes de aprovar.")
+                                    elif not benefs_editados:
+                                        st.error("Selecione pelo menos um beneficiário antes de aprovar.")
+                                    elif valor_final_anual_adm <= 0:
+                                        st.error("O valor total da declaração anual deve ser maior que zero.")
+                                    else:
+                                        with st.spinner("Gerando PDF da declaração anual..."):
+                                            meses_json_adm = json.dumps(meses_editados_a, ensure_ascii=False)
+                                            benef_json_adm = json.dumps(benefs_editados, ensure_ascii=False)
+                                            cod_val_a = dec_p.get("codigo_validacao") or f"ANSEF-A{ano_anual_edit}-{dec_p['id']:04d}"
+
+                                            pdf_anual_bytes = gerar_pdf_declaracao_anual(
+                                                titular_nome=dec_p["titular_nome"],
+                                                titular_cpf=dec_p["titular_cpf"],
+                                                beneficiarios_json=benef_json_adm,
+                                                meses_json=meses_json_adm,
+                                                ano_referencia=ano_anual_edit,
+                                                valor_total=valor_final_anual_adm,
+                                                codigo_validacao=cod_val_a,
+                                            )
+
+                                            aprovar_declaracao_anual(
+                                                dec_id=dec_p["id"],
+                                                ano_ref=ano_anual_edit,
+                                                meses_json=meses_json_adm,
+                                                beneficiarios_json=benef_json_adm,
+                                                valor_total=valor_final_anual_adm,
+                                                pdf_bytes=pdf_anual_bytes,
+                                            )
+
+                                        st.success(
+                                            f"✅ Declaração Anual #{dec_p['id']} aprovada com sucesso! "
+                                            "PDF gerado e armazenado com autenticidade."
+                                        )
+                                        st.download_button(
+                                            label="📥 Baixar PDF Gerado",
+                                            data=pdf_anual_bytes,
+                                            file_name=f"Declaracao_Anual_ANSEF_{dec_p['titular_nome']}_{ano_anual_edit}.pdf",
+                                            mime="application/pdf",
+                                            key=f"dl_anual_adm_{dec_p['id']}",
+                                        )
+                                        st.rerun()
+
+                            with col_rejeit_a:
+                                motivo_rej_a = st.text_area(
+                                    "Motivo da recusa (obrigatório para rejeitar):",
+                                    key=f"motivo_recusa_anual_{dec_p['id']}",
+                                    placeholder="Ex: Meses informados não constam como quitados...",
+                                )
+                                if st.button(
+                                    "❌ Rejeitar Declaração Anual",
+                                    use_container_width=True,
+                                    key=f"rejeitar_anual_{dec_p['id']}",
+                                ):
+                                    if not motivo_rej_a.strip():
+                                        st.error("Informe o motivo da rejeição.")
+                                    else:
+                                        rejeitar_declaracao_anual(dec_p["id"], motivo_rej_a.strip())
+                                        st.warning(f"Declaração Anual #{dec_p['id']} rejeitada.")
+                                        st.rerun()
+
+            with subtab_anual_aprov:
+                st.markdown("##### 📄 Declarações Anuais Aprovadas & Gestão")
+                st.caption(
+                    "Consulte todas as declarações anuais emitidas pela administração. "
+                    "Baixe e imprima o documento oficial ou revogue a declaração se necessário."
+                )
+
+                aprovadas_a = listar_declaracoes_anuais_aprovadas()
+
+                if not aprovadas_a:
+                    st.info("Nenhuma declaração anual aprovada no momento.")
+                else:
+                    st.markdown(f"**{len(aprovadas_a)}** declaração(ões) anual(is) aprovada(s) ativas:")
+
+                    busca_anual_ap = st.text_input(
+                        "🔍 Filtrar por nome do titular:",
+                        placeholder="Digite para filtrar por titular...",
+                        key="busca_anuais_aprov_input",
+                    )
+                    if busca_anual_ap:
+                        aprovadas_a = [
+                            a for a in aprovadas_a
+                            if busca_anual_ap.lower() in a["titular_nome"].lower()
+                        ]
+
+                    for dec_ap in aprovadas_a:
+                        meses_ap_resumo = abreviar_meses(dec_ap.get("meses_incluidos", "[]"))
+                        data_an_a_str = dec_ap["data_analise"][:10] if dec_ap.get("data_analise") else ""
+
+                        with st.expander(
+                            f"#{dec_ap['id']} — {dec_ap['titular_nome']} — Ano {dec_ap['ano_referencia']} ({meses_ap_resumo}) — {formatar_moeda(dec_ap['valor_total'])}",
+                            expanded=False,
+                        ):
+                            col_da1, col_da2 = st.columns(2)
+                            with col_da1:
+                                st.markdown(f"**Titular:** {dec_ap['titular_nome']}")
+                                st.markdown(f"**CPF:** {formatar_cpf(dec_ap['titular_cpf'])}")
+                                st.markdown(f"**Ano:** {dec_ap['ano_referencia']}")
+                                st.markdown(f"**Meses:** {descrever_meses(dec_ap.get('meses_incluidos', '[]')).capitalize()}")
+                            with col_da2:
+                                st.markdown(f"**Valor Total:** {formatar_moeda(dec_ap['valor_total'])}")
+                                st.markdown(f"**Data da Aprovação:** {data_an_a_str}")
+                                st.markdown(f"**Código de Autenticidade:** `{dec_ap.get('codigo_validacao', 'N/A')}`")
+
+                            try:
+                                b_lista_ap = json.loads(dec_ap.get("beneficiarios", "[]"))
+                            except (json.JSONDecodeError, TypeError):
+                                b_lista_ap = []
+
+                            if b_lista_ap:
+                                st.markdown("##### 👥 Beneficiários Cobertos:")
+                                for b_ap in b_lista_ap:
+                                    st.write(
+                                        f"- **{b_ap.get('nome')}** ({b_ap.get('parentesco', 'Titular')}) — "
+                                        f"{formatar_moeda(b_ap.get('valor_mensal', 0))}/mês × {b_ap.get('qtd_meses', 0)} meses = "
+                                        f"{formatar_moeda(b_ap.get('valor_total', 0))}"
+                                    )
+
+                            st.markdown("---")
+                            col_p_anual, col_c_anual = st.columns([1.5, 2])
+
+                            with col_p_anual:
+                                pdf_admin_a = dec_ap.get("pdf_gerado") or obter_pdf_declaracao_anual(dec_ap["id"])
+                                if pdf_admin_a:
+                                    st.download_button(
+                                        label="🖨️ Baixar / Imprimir PDF Anual",
+                                        data=pdf_admin_a,
+                                        file_name=f"Declaracao_Anual_ANSEF_{dec_ap['titular_nome']}_{dec_ap['ano_referencia']}.pdf",
+                                        mime="application/pdf",
+                                        type="primary",
+                                        use_container_width=True,
+                                        key=f"adm_dl_anual_ap_{dec_ap['id']}",
+                                    )
+                                else:
+                                    st.caption("PDF não encontrado no banco.")
+
+                            with col_c_anual:
+                                with st.popover("🚫 Cancelar Aprovação Anual", use_container_width=True):
+                                    st.markdown("##### ⚠️ Revogar Declaração Anual")
+                                    st.warning(
+                                        "Ao cancelar esta aprovação, o associado **não terá mais acesso** "
+                                        "a este documento no portal de declarações."
+                                    )
+                                    motivo_canc_a = st.text_input(
+                                        "Motivo do cancelamento (opcional):",
+                                        placeholder="Ex: Erro no ano/meses, retificação...",
+                                        key=f"motivo_canc_anual_{dec_ap['id']}",
+                                    )
+                                    if st.button(
+                                        "Confirmar Cancelamento",
+                                        type="primary",
+                                        key=f"btn_canc_anual_{dec_ap['id']}",
+                                        use_container_width=True,
+                                    ):
+                                        cancelar_declaracao_anual(dec_ap["id"], motivo_canc_a)
+                                        st.success(f"Declaração Anual #{dec_ap['id']} cancelada com sucesso!")
+                                        st.rerun()
 
         # ── ABA 3: TABELA DE PREÇOS E REAJUSTES ─────────────────────────────
         with tab_reajuste:
@@ -2332,115 +2961,223 @@ elif modulo == "🔒 Área Restrita (Administração)":
         with tab_relatorio:
             st.markdown("#### 📊 Histórico Geral de Declarações")
 
-            todas = listar_todas_solicitacoes()
+            subtab_rel_mensal, subtab_rel_anual = st.tabs(["📄 Declarações Mensais", "📅 Declarações Anuais"])
 
-            if not todas:
-                st.info("Nenhuma solicitação registrada no sistema.")
-            else:
-                # ── Seletor de ano e métricas do ano selecionado ──────────
-                anos_disponiveis = obter_anos_disponiveis()
-                ano_corrente = datetime.now().year
-                if not anos_disponiveis:
-                    anos_disponiveis = [ano_corrente]
+            with subtab_rel_mensal:
+                todas = listar_todas_solicitacoes()
 
-                col_ano_sel, col_ano_info = st.columns([1, 3])
-                with col_ano_sel:
-                    ano_selecionado = st.selectbox(
-                        "📆 Ano de referência:",
-                        options=anos_disponiveis,
-                        index=0,
-                        key="sel_ano_historico",
-                    )
-                with col_ano_info:
-                    st.caption(
-                        f"Exibindo dados de **{ano_selecionado}**. "
-                        f"Janela de retenção: últimos 5 anos ({ano_corrente - 4} a {ano_corrente})."
-                    )
-
-                # Métricas resumo do ano selecionado
-                metricas_ano = contar_solicitacoes_por_status_ano(ano_selecionado)
-                total_ano = sum(metricas_ano.values())
-
-                col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns(5)
-                col_h1.metric("⏳ Pendentes", metricas_ano.get("PENDENTE", 0))
-                col_h2.metric("✅ Aprovadas", metricas_ano.get("APROVADO", 0))
-                col_h3.metric("❌ Recusadas", metricas_ano.get("REJEITADO", 0))
-                col_h4.metric("🚫 Canceladas", metricas_ano.get("CANCELADO", 0))
-                col_h5.metric(f"📊 Total {ano_selecionado}", total_ano)
-
-                st.divider()
-
-                # Filtros adicionais (status e titular)
-                col_f1, col_f2 = st.columns(2)
-                with col_f1:
-                    filtro_status = st.multiselect(
-                        "Filtrar por status:",
-                        ["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
-                        default=["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
-                    )
-                with col_f2:
-                    filtro_titular = st.text_input(
-                        "Filtrar por titular:",
-                        placeholder="Nome do titular...",
-                        key="filtro_titular_hist",
-                    )
-
-                dados_filtrados = [
-                    s for s in todas
-                    if s["status"] in filtro_status
-                    and s.get("ano_referencia") == ano_selecionado
-                    and (not filtro_titular or filtro_titular.lower() in s["titular_nome"].lower())
-                ]
-
-                if dados_filtrados:
-                    # Monta DataFrame para exibição
-                    df_data = []
-                    for s in dados_filtrados:
-                        df_data.append({
-                            "ID": s["id"],
-                            "Titular": s["titular_nome"],
-                            "CPF": formatar_cpf(s["titular_cpf"]),
-                            "Mês/Ano": f"{mes_por_extenso(s['mes_referencia']).capitalize()}/{s['ano_referencia']}",
-                            "Valor Total": formatar_moeda(s["valor_total"]),
-                            "Status": s["status"],
-                            "Data Solicitação": s["data_solicitacao"][:10] if s["data_solicitacao"] else "",
-                            "Data Análise": s["data_analise"][:10] if s.get("data_analise") else "",
-                            "Código": s.get("codigo_validacao", ""),
-                        })
-
-                    df = pd.DataFrame(df_data)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                    # Exportação
-                    st.markdown("---")
-                    col_exp1, col_exp2 = st.columns(2)
-                    with col_exp1:
-                        csv_data = df.to_csv(index=False).encode("utf-8-sig")
-                        st.download_button(
-                            "📥 Exportar CSV",
-                            data=csv_data,
-                            file_name=f"relatorio_ansef_{ano_selecionado}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key="btn_export_csv",
-                        )
-                    with col_exp2:
-                        try:
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                                df.to_excel(writer, index=False, sheet_name=f"Declarações {ano_selecionado}")
-                            st.download_button(
-                                "📥 Exportar Excel",
-                                data=buffer.getvalue(),
-                                file_name=f"relatorio_ansef_{ano_selecionado}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                                key="btn_export_excel",
-                            )
-                        except Exception as e:
-                            st.caption("Exportação para Excel requer openpyxl (disponível no Streamlit Cloud). Utilize o botão de CSV ao lado.")
+                if not todas:
+                    st.info("Nenhuma solicitação mensal registrada no sistema.")
                 else:
-                    st.info(f"Nenhuma solicitação encontrada para {ano_selecionado} com os filtros aplicados.")
+                    # ── Seletor de ano e métricas do ano selecionado ──────────
+                    anos_disponiveis = obter_anos_disponiveis()
+                    ano_corrente = datetime.now().year
+                    if not anos_disponiveis:
+                        anos_disponiveis = [ano_corrente]
+
+                    col_ano_sel, col_ano_info = st.columns([1, 3])
+                    with col_ano_sel:
+                        ano_selecionado = st.selectbox(
+                            "📆 Ano de referência:",
+                            options=anos_disponiveis,
+                            index=0,
+                            key="sel_ano_historico",
+                        )
+                    with col_ano_info:
+                        st.caption(
+                            f"Exibindo dados de **{ano_selecionado}**. "
+                            f"Janela de retenção: últimos 5 anos ({ano_corrente - 4} a {ano_corrente})."
+                        )
+
+                    # Métricas resumo do ano selecionado
+                    metricas_ano = contar_solicitacoes_por_status_ano(ano_selecionado)
+                    total_ano = sum(metricas_ano.values())
+
+                    col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns(5)
+                    col_h1.metric("⏳ Pendentes", metricas_ano.get("PENDENTE", 0))
+                    col_h2.metric("✅ Aprovadas", metricas_ano.get("APROVADO", 0))
+                    col_h3.metric("❌ Recusadas", metricas_ano.get("REJEITADO", 0))
+                    col_h4.metric("🚫 Canceladas", metricas_ano.get("CANCELADO", 0))
+                    col_h5.metric(f"📊 Total {ano_selecionado}", total_ano)
+
+                    st.divider()
+
+                    # Filtros adicionais (status e titular)
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        filtro_status = st.multiselect(
+                            "Filtrar por status:",
+                            ["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
+                            default=["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
+                        )
+                    with col_f2:
+                        filtro_titular = st.text_input(
+                            "Filtrar por titular:",
+                            placeholder="Nome do titular...",
+                            key="filtro_titular_hist",
+                        )
+
+                    dados_filtrados = [
+                        s for s in todas
+                        if s["status"] in filtro_status
+                        and s.get("ano_referencia") == ano_selecionado
+                        and (not filtro_titular or filtro_titular.lower() in s["titular_nome"].lower())
+                    ]
+
+                    if dados_filtrados:
+                        # Monta DataFrame para exibição
+                        df_data = []
+                        for s in dados_filtrados:
+                            df_data.append({
+                                "ID": s["id"],
+                                "Titular": s["titular_nome"],
+                                "CPF": formatar_cpf(s["titular_cpf"]),
+                                "Mês/Ano": f"{mes_por_extenso(s['mes_referencia']).capitalize()}/{s['ano_referencia']}",
+                                "Valor Total": formatar_moeda(s["valor_total"]),
+                                "Status": s["status"],
+                                "Data Solicitação": s["data_solicitacao"][:10] if s["data_solicitacao"] else "",
+                                "Data Análise": s["data_analise"][:10] if s.get("data_analise") else "",
+                                "Código": s.get("codigo_validacao", ""),
+                            })
+
+                        df = pd.DataFrame(df_data)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+
+                        # Exportação
+                        st.markdown("---")
+                        col_exp1, col_exp2 = st.columns(2)
+                        with col_exp1:
+                            csv_data = df.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                "📥 Exportar CSV",
+                                data=csv_data,
+                                file_name=f"relatorio_ansef_{ano_selecionado}.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                                key="btn_export_csv",
+                            )
+                        with col_exp2:
+                            try:
+                                buffer = io.BytesIO()
+                                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                                    df.to_excel(writer, index=False, sheet_name=f"Declarações {ano_selecionado}")
+                                st.download_button(
+                                    "📥 Exportar Excel",
+                                    data=buffer.getvalue(),
+                                    file_name=f"relatorio_ansef_{ano_selecionado}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True,
+                                    key="btn_export_excel",
+                                )
+                            except Exception as e:
+                                st.caption("Exportação para Excel requer openpyxl (disponível no Streamlit Cloud). Utilize o botão de CSV ao lado.")
+                    else:
+                        st.info(f"Nenhuma solicitação encontrada para {ano_selecionado} com os filtros aplicados.")
+
+            with subtab_rel_anual:
+                todas_anuais = listar_todas_declaracoes_anuais()
+                if not todas_anuais:
+                    st.info("Nenhuma declaração anual registrada no sistema.")
+                else:
+                    anos_anuais = sorted({a.get("ano_referencia") for a in todas_anuais if a.get("ano_referencia")}, reverse=True)
+                    if not anos_anuais:
+                        anos_anuais = [datetime.now().year]
+
+                    col_ano_a, col_info_a = st.columns([1, 3])
+                    with col_ano_a:
+                        ano_anual_rel = st.selectbox(
+                            "📆 Ano de referência:",
+                            options=anos_anuais,
+                            index=0,
+                            key="sel_ano_anual_rel",
+                        )
+                    with col_info_a:
+                        st.caption(f"Exibindo declarações anuais referentes a **{ano_anual_rel}**.")
+
+                    # Métricas do ano para anuais
+                    anuais_ano = [a for a in todas_anuais if a.get("ano_referencia") == ano_anual_rel]
+                    cont_p = sum(1 for a in anuais_ano if a["status"] == "PENDENTE")
+                    cont_a = sum(1 for a in anuais_ano if a["status"] == "APROVADO")
+                    cont_r = sum(1 for a in anuais_ano if a["status"] == "REJEITADO")
+                    cont_c = sum(1 for a in anuais_ano if a["status"] == "CANCELADO")
+
+                    col_ha1, col_ha2, col_ha3, col_ha4, col_ha5 = st.columns(5)
+                    col_ha1.metric("⏳ Pendentes", cont_p)
+                    col_ha2.metric("✅ Aprovadas", cont_a)
+                    col_ha3.metric("❌ Recusadas", cont_r)
+                    col_ha4.metric("🚫 Canceladas", cont_c)
+                    col_ha5.metric(f"📊 Total {ano_anual_rel}", len(anuais_ano))
+
+                    st.divider()
+
+                    col_fa1, col_fa2 = st.columns(2)
+                    with col_fa1:
+                        filtro_status_a = st.multiselect(
+                            "Filtrar por status:",
+                            ["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
+                            default=["PENDENTE", "APROVADO", "CANCELADO", "REJEITADO"],
+                            key="filtro_status_rel_anual",
+                        )
+                    with col_fa2:
+                        filtro_tit_a = st.text_input(
+                            "Filtrar por titular:",
+                            placeholder="Nome do titular...",
+                            key="filtro_titular_rel_anual",
+                        )
+
+                    anuais_filtradas = [
+                        a for a in anuais_ano
+                        if a["status"] in filtro_status_a
+                        and (not filtro_tit_a or filtro_tit_a.lower() in a["titular_nome"].lower())
+                    ]
+
+                    if anuais_filtradas:
+                        df_a_data = []
+                        for a in anuais_filtradas:
+                            df_a_data.append({
+                                "ID": a["id"],
+                                "Titular": a["titular_nome"],
+                                "CPF": formatar_cpf(a["titular_cpf"]),
+                                "Ano": a["ano_referencia"],
+                                "Meses": abreviar_meses(a.get("meses_incluidos", "[]")),
+                                "Valor Total": formatar_moeda(a["valor_total"]),
+                                "Status": a["status"],
+                                "Data Solicitação": a["data_solicitacao"][:10] if a.get("data_solicitacao") else "",
+                                "Data Análise": a["data_analise"][:10] if a.get("data_analise") else "",
+                                "Código": a.get("codigo_validacao", ""),
+                            })
+
+                        df_a = pd.DataFrame(df_a_data)
+                        st.dataframe(df_a, use_container_width=True, hide_index=True)
+
+                        col_ea1, col_ea2 = st.columns(2)
+                        with col_ea1:
+                            csv_data_a = df_a.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                "📥 Exportar CSV (Anuais)",
+                                data=csv_data_a,
+                                file_name=f"relatorio_ansef_anuais_{ano_anual_rel}.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                                key="btn_export_csv_anuais",
+                            )
+                        with col_ea2:
+                            try:
+                                buf_a = io.BytesIO()
+                                with pd.ExcelWriter(buf_a, engine="openpyxl") as writer:
+                                    df_a.to_excel(writer, index=False, sheet_name=f"Anuais {ano_anual_rel}")
+                                st.download_button(
+                                    "📥 Exportar Excel (Anuais)",
+                                    data=buf_a.getvalue(),
+                                    file_name=f"relatorio_ansef_anuais_{ano_anual_rel}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True,
+                                    key="btn_export_excel_anuais",
+                                )
+                            except Exception:
+                                st.caption("Exportação para Excel requer openpyxl.")
+                    else:
+                        st.info(f"Nenhuma declaração anual encontrada para {ano_anual_rel} com os filtros aplicados.")
 
             # ── GESTÃO DE BACKUP & PERSISTÊNCIA ──────────────────────────────
             st.markdown("---")
@@ -2452,11 +3189,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     "Baixe cópias de segurança periódicas ou restaure dados a qualquer momento."
                 )
 
-                col_bk1, col_bk2, col_bk3 = st.columns(3)
+                col_bk1, col_bk2, col_bk3, col_bk4 = st.columns(4)
                 with col_bk1:
                     backup_json_str = exportar_backup_json()
                     st.download_button(
-                        label="📥 Baixar Solicitações (JSON)",
+                        label="📥 Baixar Mensais (JSON)",
                         data=backup_json_str.encode("utf-8"),
                         file_name=f"backup_ansef_solicitacoes_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                         mime="application/json",
@@ -2465,9 +3202,20 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     )
 
                 with col_bk2:
+                    backup_anuais_str = exportar_backup_anuais_json()
+                    st.download_button(
+                        label="📥 Baixar Anuais (JSON)",
+                        data=backup_anuais_str.encode("utf-8"),
+                        file_name=f"backup_ansef_declaracoes_anuais_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="btn_dl_backup_anuais_json",
+                    )
+
+                with col_bk3:
                     backup_precos_str = exportar_backup_precos_json()
                     st.download_button(
-                        label="📥 Baixar Preços & Config (JSON)",
+                        label="📥 Baixar Preços (JSON)",
                         data=backup_precos_str.encode("utf-8"),
                         file_name=f"backup_ansef_precos_config_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                         mime="application/json",
@@ -2475,7 +3223,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         key="btn_dl_backup_precos_json",
                     )
 
-                with col_bk3:
+                with col_bk4:
                     if os.path.exists(DB_PATH):
                         with open(DB_PATH, "rb") as f_db:
                             db_bytes = f_db.read()
@@ -2489,16 +3237,16 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         )
 
                 st.markdown("---")
-                col_up1, col_up2 = st.columns(2)
+                col_up1, col_up2, col_up3 = st.columns(3)
                 with col_up1:
-                    st.markdown("##### 📤 Restaurar Solicitações")
+                    st.markdown("##### 📤 Restaurar Mensais")
                     arquivo_upload = st.file_uploader(
-                        "Envie um arquivo JSON de solicitações:",
+                        "JSON de solicitações mensais:",
                         type=["json"],
                         key="uploader_backup_json",
                     )
                     if arquivo_upload is not None:
-                        if st.button("Confirmar Restauração de Declarações", type="primary", key="btn_confirm_restore"):
+                        if st.button("Confirmar Restauração Mensal", type="primary", key="btn_confirm_restore"):
                             conteudo = arquivo_upload.read().decode("utf-8")
                             sucesso_res, msg_res, qtd = importar_backup_json(conteudo)
                             if sucesso_res:
@@ -2508,9 +3256,26 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 st.error(f"❌ {msg_res}")
 
                 with col_up2:
-                    st.markdown("##### 📤 Restaurar Preços & Configurações")
+                    st.markdown("##### 📤 Restaurar Anuais")
+                    arquivo_upload_anuais = st.file_uploader(
+                        "JSON de declarações anuais:",
+                        type=["json"],
+                        key="uploader_backup_anuais_json",
+                    )
+                    if arquivo_upload_anuais is not None:
+                        if st.button("Confirmar Restauração Anual", type="primary", key="btn_confirm_restore_anuais"):
+                            conteudo_a = arquivo_upload_anuais.read().decode("utf-8")
+                            sucesso_ra, msg_ra, qtd_a = importar_backup_anuais_json(conteudo_a)
+                            if sucesso_ra:
+                                st.success(f"✅ {msg_ra}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg_ra}")
+
+                with col_up3:
+                    st.markdown("##### 📤 Restaurar Preços")
                     arquivo_upload_precos = st.file_uploader(
-                        "Envie um arquivo JSON de preços e faixas:",
+                        "JSON de preços e faixas:",
                         type=["json"],
                         key="uploader_backup_precos_json",
                     )

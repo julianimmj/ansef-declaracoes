@@ -31,11 +31,17 @@ except ImportError:
         valor_por_extenso,
     )
 
+try:
+    from src.utils import normalizar_meses, descrever_meses
+except ImportError:
+    from utils import normalizar_meses, descrever_meses
+
 logger = logging.getLogger(__name__)
 
 # Caminhos dos assets e templates
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "declaracao_template.html")
+TEMPLATE_ANUAL_PATH = os.path.join(BASE_DIR, "templates", "declaracao_anual_template.html")
 LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo_ansef.png")
 ASSINATURA_PATH = os.path.join(BASE_DIR, "assets", "assinatura.png")
 
@@ -194,3 +200,92 @@ def _fallback_reportlab_pdf(html: str) -> bytes:
     except Exception as e:
         logger.error(f"Fallback reportlab também falhou: {e}")
         return b""
+
+
+# ─── DECLARAÇÃO ANUAL ─────────────────────────────────────────────────────────
+
+def gerar_pdf_declaracao_anual(
+    titular_nome: str,
+    titular_cpf: str,
+    beneficiarios_json: str,
+    meses_json,
+    ano_referencia: int,
+    valor_total: float,
+    codigo_validacao: str,
+) -> bytes:
+    """
+    Gera o PDF da declaração ANUAL de pagamento.
+
+    beneficiarios_json: JSON (ou lista) com itens
+        {"nome", "parentesco", "valor_mensal", "qtd_meses", "valor_total"}
+    meses_json: JSON (ou lista) com os meses (1..12) incluídos na declaração.
+    Retorna os bytes do PDF gerado.
+    """
+    if isinstance(beneficiarios_json, str):
+        try:
+            beneficiarios = json.loads(beneficiarios_json) if beneficiarios_json else []
+        except (json.JSONDecodeError, TypeError):
+            beneficiarios = []
+    else:
+        beneficiarios = list(beneficiarios_json or [])
+
+    meses = normalizar_meses(meses_json)
+    qtd_meses = len(meses)
+    titular_upper = (titular_nome or "").upper()
+
+    # Dependentes (exclui o titular) para o texto introdutório
+    deps_lista = [
+        b for b in beneficiarios if (b.get("nome", "") or "").upper() != titular_upper
+    ]
+
+    # Linhas da tabela — titular primeiro (se selecionado), depois dependentes
+    def _linha(b: dict, parentesco: str) -> dict:
+        valor_mensal = float(b.get("valor_mensal", 0.0) or 0.0)
+        qtd = int(b.get("qtd_meses", qtd_meses) or qtd_meses)
+        total_b = b.get("valor_total")
+        total_b = float(total_b) if total_b is not None else round(valor_mensal * qtd, 2)
+        return {
+            "nome": (b.get("nome", "") or "").upper(),
+            "parentesco": parentesco,
+            "valor_mensal_formatado": formatar_moeda(valor_mensal),
+            "qtd_meses": qtd,
+            "valor_total_formatado": formatar_moeda(total_b),
+        }
+
+    todos = []
+    for b in beneficiarios:
+        if (b.get("nome", "") or "").upper() == titular_upper:
+            todos.append(_linha(b, "Titular"))
+            break
+    for b in deps_lista:
+        todos.append(_linha(b, b.get("parentesco", "")))
+
+    texto_faturas = (
+        "a fatura referente ao mês de" if qtd_meses == 1
+        else "as faturas referentes aos meses de"
+    )
+
+    context = {
+        "logo_path": _img_to_data_uri(LOGO_PATH),
+        "assinatura_path": _img_to_data_uri(ASSINATURA_PATH),
+        "titular_nome": titular_upper,
+        "titular_cpf": formatar_cpf(titular_cpf or ""),
+        "dependentes": [
+            {"nome": d.get("nome", ""), "parentesco": d.get("parentesco", "")}
+            for d in deps_lista
+        ],
+        "todos_beneficiarios": todos,
+        "ano_referencia": ano_referencia,
+        "meses_extenso": descrever_meses(meses),
+        "qtd_meses": qtd_meses,
+        "texto_faturas": texto_faturas,
+        "valor_total_formatado": formatar_moeda(valor_total),
+        "valor_por_extenso": valor_por_extenso(valor_total),
+        "data_emissao_extenso": data_por_extenso(date.today()),
+        "codigo_validacao": codigo_validacao,
+    }
+
+    with open(TEMPLATE_ANUAL_PATH, "r", encoding="utf-8") as f:
+        template_html = f.read()
+    html_renderizado = Template(template_html).render(**context)
+    return _html_to_pdf(html_renderizado)

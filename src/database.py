@@ -35,6 +35,12 @@ def _obter_solicitacoes_backup_path() -> str:
 def _obter_config_precos_path() -> str:
     return os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or CONFIG_PRECOS_PATH
 
+# Backup permanente (JSON versionado no Git) das declarações ANUAIS — isolado do backup mensal
+DECLARACOES_ANUAIS_BACKUP_PATH = os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "declaracoes_anuais_backup.json")
+
+def _obter_anuais_backup_path() -> str:
+    return os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or DECLARACOES_ANUAIS_BACKUP_PATH
+
 TABELA_FAIXAS_PADRAO = [
     ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
     ("19 – 23 anos", 19, 23, 412.00, 295.00, 2),
@@ -329,6 +335,13 @@ def inicializar_banco():
 
         # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado
         _garantir_pdfs_solicitacoes_aprovadas(conn)
+
+        # Declarações ANUAIS (estrutura isolada). Qualquer falha aqui é contida
+        # para jamais afetar o funcionamento das declarações mensais.
+        try:
+            _inicializar_declaracoes_anuais(conn)
+        except Exception as e:
+            logger.warning(f"Inicialização das declarações anuais ignorada: {e}")
 
 
 def _carregar_csv(conn):
@@ -1999,5 +2012,404 @@ def remover_uniodonto_titular(titular_nome: str) -> tuple[bool, str]:
             return False, f"Titular '{titular_limpo}' não encontrado no cadastro da Uniodonto."
         _salvar_backup_precos(conn)
     return True, f"Titular '{titular_limpo}' removido com sucesso do plano Uniodonto."
+
+
+# ─── DECLARAÇÕES ANUAIS DE PAGAMENTO ────────────────────────────────────────────
+#
+# Estrutura totalmente isolada da tabela `solicitacoes` (declarações mensais):
+#   - tabela própria `declaracoes_anuais`
+#   - backup JSON próprio em data/declaracoes_anuais_backup.json (sincronizado no GitHub)
+# Assim, nenhuma métrica, listagem ou rotina das declarações mensais é afetada.
+
+_CAMPOS_ANUAIS = (
+    "id", "codigo_validacao", "titular_nome", "titular_cpf", "ano_referencia",
+    "meses_incluidos", "beneficiarios", "valor_total", "status",
+    "data_solicitacao", "data_analise", "observacoes_admin",
+)
+
+
+def _garantir_tabela_anuais(conn) -> None:
+    """Cria a tabela de declarações anuais caso ainda não exista (idempotente)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS declaracoes_anuais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_validacao TEXT UNIQUE,
+            titular_nome TEXT NOT NULL,
+            titular_cpf TEXT NOT NULL,
+            ano_referencia INTEGER NOT NULL,
+            meses_incluidos TEXT NOT NULL DEFAULT '[]',
+            beneficiarios TEXT NOT NULL DEFAULT '[]',
+            valor_total REAL NOT NULL,
+            status TEXT DEFAULT 'PENDENTE',
+            data_solicitacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            data_analise TIMESTAMP,
+            observacoes_admin TEXT,
+            pdf_gerado BLOB
+        )
+    """)
+
+
+def _inicializar_declaracoes_anuais(conn) -> None:
+    """Cria a tabela, restaura do backup JSON, aplica retenção e garante PDFs."""
+    _garantir_tabela_anuais(conn)
+    _carregar_backup_anuais(conn)
+    _salvar_backup_anuais(conn, sync_git=False)
+    _limpar_anuais_antigas(conn)
+    _garantir_pdfs_anuais_aprovadas(conn)
+
+
+def _salvar_backup_anuais(conn=None, sync_git: bool = True) -> None:
+    """Exporta as declarações anuais para JSON permanente (sem o BLOB do PDF)."""
+    caminho = _obter_anuais_backup_path()
+    try:
+        def _exec(c):
+            _garantir_tabela_anuais(c)
+            rows = c.execute("SELECT * FROM declaracoes_anuais ORDER BY id ASC").fetchall()
+            data = []
+            for r in rows:
+                item = dict(r)
+                item.pop("pdf_gerado", None)
+                data.append(item)
+            os.makedirs(os.path.dirname(caminho), exist_ok=True)
+            with open(caminho, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        if conn:
+            _exec(conn)
+        else:
+            with get_connection() as c:
+                _exec(c)
+    except Exception as e:
+        logger.warning(f"Erro ao salvar backup de declarações anuais: {e}")
+    else:
+        if sync_git:
+            _git_sync_background("data/declaracoes_anuais_backup.json")
+
+
+def _carregar_backup_anuais(conn) -> int:
+    """
+    Restaura/sincroniza as declarações anuais a partir do JSON permanente.
+    Insere registros ausentes e atualiza os campos mutáveis dos existentes.
+    """
+    caminho = _obter_anuais_backup_path()
+    if not os.path.exists(caminho):
+        return 0
+
+    try:
+        with open(caminho, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data or not isinstance(data, list):
+            return 0
+
+        _garantir_tabela_anuais(conn)
+        total = 0
+        for item in data:
+            try:
+                iid = item.get("id")
+                cod = item.get("codigo_validacao")
+                existe = conn.execute(
+                    "SELECT id FROM declaracoes_anuais WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
+                    (iid, cod)
+                ).fetchone()
+                if not existe:
+                    conn.execute(f"""
+                        INSERT INTO declaracoes_anuais ({", ".join(_CAMPOS_ANUAIS)}, pdf_gerado)
+                        VALUES ({", ".join("?" for _ in _CAMPOS_ANUAIS)}, NULL)
+                    """, tuple(
+                        item.get(c, "PENDENTE" if c == "status" else ("[]" if c in ("meses_incluidos", "beneficiarios") else None))
+                        for c in _CAMPOS_ANUAIS
+                    ))
+                    total += 1
+                else:
+                    st_item = item.get("status", "PENDENTE")
+                    conn.execute("""
+                        UPDATE declaracoes_anuais SET
+                            status = ?,
+                            data_analise = ?,
+                            observacoes_admin = ?,
+                            valor_total = COALESCE(?, valor_total),
+                            meses_incluidos = COALESCE(?, meses_incluidos),
+                            beneficiarios = COALESCE(?, beneficiarios),
+                            ano_referencia = COALESCE(?, ano_referencia),
+                            pdf_gerado = CASE WHEN ? = 'APROVADO' THEN pdf_gerado ELSE NULL END
+                        WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)
+                    """, (
+                        st_item,
+                        item.get("data_analise"),
+                        item.get("observacoes_admin"),
+                        item.get("valor_total"),
+                        item.get("meses_incluidos"),
+                        item.get("beneficiarios"),
+                        item.get("ano_referencia"),
+                        st_item,
+                        iid,
+                        cod,
+                    ))
+            except (sqlite3.IntegrityError, sqlite3.OperationalError) as e:
+                logger.debug(f"Backup anual: ignorando item id={item.get('id')}: {e}")
+                continue
+        return total
+    except Exception as e:
+        logger.warning(f"Erro ao carregar backup de declarações anuais: {e}")
+        return 0
+
+
+def _limpar_anuais_antigas(conn) -> int:
+    """Aplica a mesma política de retenção de 5 anos das declarações mensais."""
+    ano_limite = datetime.now().year - 4
+    try:
+        cursor = conn.execute(
+            "DELETE FROM declaracoes_anuais WHERE ano_referencia < ?", (ano_limite,)
+        )
+        if cursor.rowcount > 0:
+            _salvar_backup_anuais(conn)
+        return cursor.rowcount
+    except Exception as e:
+        logger.warning(f"Erro na retenção de declarações anuais: {e}")
+        return 0
+
+
+def _gerar_pdf_anual_de_registro(dec: dict) -> bytes:
+    """Gera o PDF anual a partir de um registro do banco."""
+    try:
+        from src.pdf_generator import gerar_pdf_declaracao_anual
+    except ImportError:
+        from pdf_generator import gerar_pdf_declaracao_anual
+    return gerar_pdf_declaracao_anual(
+        titular_nome=dec["titular_nome"],
+        titular_cpf=dec["titular_cpf"],
+        beneficiarios_json=dec.get("beneficiarios") or "[]",
+        meses_json=dec.get("meses_incluidos") or "[]",
+        ano_referencia=dec["ano_referencia"],
+        valor_total=dec["valor_total"],
+        codigo_validacao=dec.get("codigo_validacao") or f"ANSEF-A{dec['ano_referencia']}-{dec['id']:04d}",
+    )
+
+
+def _garantir_pdfs_anuais_aprovadas(conn) -> None:
+    """Gera o PDF de declarações anuais aprovadas que estejam sem o BLOB."""
+    try:
+        rows = conn.execute("""
+            SELECT * FROM declaracoes_anuais
+            WHERE status = 'APROVADO' AND (pdf_gerado IS NULL OR LENGTH(pdf_gerado) < 100)
+        """).fetchall()
+        for r in rows:
+            dec = dict(r)
+            try:
+                conn.execute(
+                    "UPDATE declaracoes_anuais SET pdf_gerado = ? WHERE id = ?",
+                    (_gerar_pdf_anual_de_registro(dec), dec["id"])
+                )
+            except Exception as ex:
+                logger.error(f"Erro ao sintetizar PDF anual #{dec['id']}: {ex}")
+    except Exception as e:
+        logger.warning(f"Erro ao verificar PDFs de declarações anuais: {e}")
+
+
+def criar_declaracao_anual(titular_nome: str, titular_cpf: str, ano_ref: int,
+                           meses_json: str, beneficiarios_json: str,
+                           valor_total: float) -> int:
+    """Cria uma nova solicitação de declaração anual (status PENDENTE). Retorna o ID."""
+    try:
+        from src.utils import gerar_codigo_validacao_anual
+    except ImportError:
+        from utils import gerar_codigo_validacao_anual
+
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        cursor = conn.execute("""
+            INSERT INTO declaracoes_anuais
+                (titular_nome, titular_cpf, ano_referencia, meses_incluidos,
+                 beneficiarios, valor_total, data_solicitacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (titular_nome, titular_cpf, ano_ref, meses_json, beneficiarios_json,
+              valor_total, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        dec_id = cursor.lastrowid
+        conn.execute(
+            "UPDATE declaracoes_anuais SET codigo_validacao = ? WHERE id = ?",
+            (gerar_codigo_validacao_anual(dec_id, ano_ref), dec_id)
+        )
+        _salvar_backup_anuais(conn)
+        return dec_id
+
+
+def _listar_anuais(where: str = "", params: tuple = (), order: str = "data_solicitacao DESC, id DESC") -> list[dict]:
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        _carregar_backup_anuais(conn)
+        sql = "SELECT * FROM declaracoes_anuais"
+        if where:
+            sql += f" WHERE {where}"
+        sql += f" ORDER BY {order}"
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def listar_declaracoes_anuais_titular(titular_nome: str) -> list[dict]:
+    """Retorna as declarações anuais de um titular (mais recentes primeiro)."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    return _listar_anuais("LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))", (nome_limpo,))
+
+
+def listar_declaracoes_anuais_pendentes() -> list[dict]:
+    """Retorna as declarações anuais aguardando análise (mais antigas primeiro)."""
+    return _listar_anuais("status = 'PENDENTE'", order="data_solicitacao ASC, id ASC")
+
+
+def listar_declaracoes_anuais_aprovadas() -> list[dict]:
+    """Retorna as declarações anuais aprovadas (mais recentes primeiro)."""
+    return _listar_anuais("status = 'APROVADO'", order="data_analise DESC, id DESC")
+
+
+def listar_todas_declaracoes_anuais() -> list[dict]:
+    """Retorna todas as declarações anuais."""
+    return _listar_anuais()
+
+
+def contar_declaracoes_anuais_pendentes() -> int:
+    """Quantidade de declarações anuais pendentes (não lança exceção)."""
+    try:
+        return len(listar_declaracoes_anuais_pendentes())
+    except Exception as e:
+        logger.warning(f"contar_declaracoes_anuais_pendentes falhou: {e}")
+        return 0
+
+
+def aprovar_declaracao_anual(dec_id: int, ano_ref: int, meses_json: str,
+                             beneficiarios_json: str, valor_total: float,
+                             pdf_bytes: bytes) -> None:
+    """Aprova a declaração anual, grava os dados finais e o PDF."""
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        conn.execute("""
+            UPDATE declaracoes_anuais
+            SET status = 'APROVADO',
+                ano_referencia = ?,
+                meses_incluidos = ?,
+                beneficiarios = ?,
+                valor_total = ?,
+                data_analise = ?,
+                pdf_gerado = ?
+            WHERE id = ?
+        """, (ano_ref, meses_json, beneficiarios_json, valor_total,
+              datetime.now().isoformat(), pdf_bytes, dec_id))
+        _salvar_backup_anuais(conn)
+
+
+def rejeitar_declaracao_anual(dec_id: int, observacoes: str) -> None:
+    """Rejeita a declaração anual com justificativa."""
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        conn.execute("""
+            UPDATE declaracoes_anuais
+            SET status = 'REJEITADO', data_analise = ?, observacoes_admin = ?
+            WHERE id = ?
+        """, (datetime.now().isoformat(), observacoes, dec_id))
+        _salvar_backup_anuais(conn)
+
+
+def cancelar_declaracao_anual(dec_id: int, motivo: str = "") -> None:
+    """Revoga uma declaração anual aprovada (status CANCELADO e remove o PDF)."""
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        row = conn.execute(
+            "SELECT observacoes_admin FROM declaracoes_anuais WHERE id = ?", (dec_id,)
+        ).fetchone()
+        obs_anterior = row["observacoes_admin"] if row and row["observacoes_admin"] else ""
+        agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        novo_obs = f"[CANCELADO EM {agora_str}] {motivo.strip()}".strip()
+        if obs_anterior:
+            novo_obs = f"{obs_anterior} | {novo_obs}"
+        conn.execute("""
+            UPDATE declaracoes_anuais
+            SET status = 'CANCELADO', pdf_gerado = NULL, observacoes_admin = ?
+            WHERE id = ?
+        """, (novo_obs, dec_id))
+        _salvar_backup_anuais(conn)
+
+
+def obter_pdf_declaracao_anual(dec_id: int) -> bytes | None:
+    """Retorna o PDF de uma declaração anual aprovada (gera e persiste se faltar)."""
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        row = conn.execute("SELECT * FROM declaracoes_anuais WHERE id = ?", (dec_id,)).fetchone()
+        if not row:
+            return None
+        dec = dict(row)
+        pdf_bytes = dec.get("pdf_gerado")
+        if pdf_bytes and len(pdf_bytes) > 100:
+            return pdf_bytes
+        if dec.get("status") != "APROVADO":
+            return None
+        try:
+            novo_pdf = _gerar_pdf_anual_de_registro(dec)
+            conn.execute("UPDATE declaracoes_anuais SET pdf_gerado = ? WHERE id = ?", (novo_pdf, dec_id))
+            return novo_pdf
+        except Exception as e:
+            logger.error(f"Erro ao sintetizar PDF anual sob demanda #{dec_id}: {e}")
+            return None
+
+
+def exportar_backup_anuais_json() -> str:
+    """Retorna o JSON completo das declarações anuais (sem PDFs) para download."""
+    with get_connection() as conn:
+        _garantir_tabela_anuais(conn)
+        rows = conn.execute("SELECT * FROM declaracoes_anuais ORDER BY id ASC").fetchall()
+        data = []
+        for r in rows:
+            item = dict(r)
+            item.pop("pdf_gerado", None)
+            data.append(item)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def importar_backup_anuais_json(conteudo_json: str) -> tuple[bool, str, int]:
+    """Importa e mescla declarações anuais a partir de um JSON de backup fornecido pelo admin."""
+    try:
+        data = json.loads(conteudo_json)
+        if not isinstance(data, list):
+            return False, "O conteúdo do arquivo deve ser uma lista de declarações anuais em JSON.", 0
+
+        restaurados = 0
+        with get_connection() as conn:
+            _garantir_tabela_anuais(conn)
+            for item in data:
+                cod = item.get("codigo_validacao")
+                iid = item.get("id")
+                existe = conn.execute(
+                    "SELECT id FROM declaracoes_anuais WHERE id = ? OR (codigo_validacao = ? AND codigo_validacao IS NOT NULL)",
+                    (iid, cod)
+                ).fetchone()
+                if not existe:
+                    conn.execute("""
+                        INSERT INTO declaracoes_anuais (
+                            id, codigo_validacao, titular_nome, titular_cpf, ano_referencia,
+                            meses_incluidos, beneficiarios, valor_total,
+                            status, data_solicitacao, data_analise, observacoes_admin, pdf_gerado
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        item.get("id"),
+                        item.get("codigo_validacao"),
+                        item.get("titular_nome"),
+                        item.get("titular_cpf"),
+                        item.get("ano_referencia"),
+                        item.get("meses_incluidos", "[]"),
+                        item.get("beneficiarios", "[]"),
+                        item.get("valor_total"),
+                        item.get("status", "PENDENTE"),
+                        item.get("data_solicitacao"),
+                        item.get("data_analise"),
+                        item.get("observacoes_admin"),
+                        None
+                    ))
+                    restaurados += 1
+            _garantir_pdfs_anuais_aprovadas(conn)
+            _salvar_backup_anuais(conn)
+
+        return True, f"Backup importado com sucesso! {restaurados} nova(s) declaração(ões) anual(is) restaurada(s).", restaurados
+    except Exception as e:
+        logger.error(f"Erro ao importar backup de declarações anuais: {e}")
+        return False, f"Erro ao processar arquivo: {e}", 0
+
+
 
 

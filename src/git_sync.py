@@ -31,6 +31,7 @@ SYNC_FILES = [
     "data/config_precos.json",
     "data/solicitacoes_backup.json",
     "data/integrantes.csv",
+    "data/declaracoes_anuais_backup.json",
 ]
 
 # Lock reentrante para evitar commits simultâneos entre threads e botões manuais

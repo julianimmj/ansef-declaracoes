@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Declaração Anual de Pagamento - ANSEF/CAS</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 18mm 22mm 18mm 22mm;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12pt;
+            color: #1a1a1a;
+            line-height: 1.55;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .header img.logo {
+            width: 74px;
+            height: auto;
+            margin-bottom: 6px;
+        }
+        .header h1 {
+            font-size: 12.5pt;
+            font-weight: bold;
+            margin: 0;
+            line-height: 1.3;
+        }
+        .header .subtitle {
+            font-size: 12.5pt;
+            font-weight: bold;
+            margin: 2px 0;
+        }
+        .header .cnpj {
+            font-size: 9.5pt;
+            color: #555;
+            margin-top: 4px;
+        }
+        .titulo-declaracao {
+            text-align: center;
+            font-size: 18pt;
+            font-weight: bold;
+            margin: 20px 0 2px 0;
+            letter-spacing: 1px;
+        }
+        .subtitulo-declaracao {
+            text-align: center;
+            font-size: 11.5pt;
+            font-weight: bold;
+            color: #1B3A6B;
+            margin: 0 0 18px 0;
+        }
+        .corpo-texto {
+            text-align: justify;
+            text-indent: 3cm;
+            font-size: 12pt;
+            line-height: 1.7;
+            margin-bottom: 12px;
+        }
+        .dependente-item {
+            text-indent: 3cm;
+            font-size: 12pt;
+            line-height: 1.6;
+            margin-bottom: 1px;
+        }
+        .dependente-nome {
+            font-weight: bold;
+        }
+        .tabela-beneficiarios {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 14px 0 10px 0;
+            font-size: 10pt;
+        }
+        .tabela-beneficiarios th {
+            background-color: #1B3A6B;
+            color: white;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: bold;
+            border: 1px solid #1B3A6B;
+        }
+        .tabela-beneficiarios td {
+            padding: 5px 8px;
+            border: 1px solid #ccc;
+        }
+        .tabela-beneficiarios .total-row td {
+            font-weight: bold;
+            background-color: #e8ecf1;
+            border-top: 2px solid #1B3A6B;
+        }
+        .tabela-beneficiarios .valor {
+            text-align: right;
+        }
+        .tabela-beneficiarios .centro {
+            text-align: center;
+        }
+        .nota-meses {
+            font-size: 9.5pt;
+            color: #444;
+            margin: 0 0 6px 0;
+        }
+        .data-local {
+            text-align: right;
+            margin: 22px 0 26px 0;
+            font-size: 12pt;
+        }
+        .assinatura-bloco {
+            text-align: center;
+            margin-top: 16px;
+        }
+        .assinatura-bloco img {
+            width: 190px;
+            height: auto;
+            margin-bottom: 0;
+        }
+        .assinatura-nome {
+            font-weight: bold;
+            font-size: 11.5pt;
+            margin-top: 0;
+        }
+        .assinatura-cargo {
+            font-size: 10.5pt;
+            color: #333;
+        }
+        .rodape-autenticidade {
+            margin-top: 30px;
+            padding-top: 8px;
+            border-top: 1px solid #ccc;
+            text-align: center;
+            font-size: 8pt;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Cabeçalho Institucional -->
+    <div class="header">
+        <img class="logo" src="{{ logo_path }}" alt="Brasão ANSEF/CAS">
+        <h1>ASSOCIAÇÃO DOS SERVIDORES DA POLÍCIA FEDERAL EM CAMPINAS/SP</h1>
+        <div class="subtitle">ANSEF/CAS</div>
+        <div class="cnpj">CNPJ: 19.010.380/0001-73 | Campinas - SP</div>
+    </div>
+
+    <!-- Título -->
+    <div class="titulo-declaracao">DECLARAÇÃO ANUAL DE PAGAMENTO</div>
+    <div class="subtitulo-declaracao">Ano de Referência: {{ ano_referencia }}</div>
+
+    <!-- Corpo do Texto -->
+    <p class="corpo-texto">
+        Declaro, para os fins de ressarcimento de assistência à saúde complementar,
+        que <strong>{{ titular_nome }}</strong>, inscrito no CPF sob o nº
+        <strong>{{ titular_cpf }}</strong>, é associado da ANSEF/CAMPINAS, e integra o convênio
+        estabelecido com a UNIMED CAMPINAS, contrato com a ASSOCIACAO DOS SERVIDORES DA
+        POLÍCIA FEDERAL EM CAMPINAS/SP - ANSEF/CAS nº 586874, como titular de plano de
+        saúde{% if dependentes %}, tendo os seguintes dependentes:{% else %}.{% endif %}
+    </p>
+
+    {% if dependentes %}
+    {% for dep in dependentes %}
+    <p class="dependente-item">
+        <span class="dependente-nome">{{ dep.nome }}</span> ({{ dep.parentesco }})
+    </p>
+    {% endfor %}
+    {% endif %}
+
+    <p class="corpo-texto">
+        Informo-vos ainda que {{ texto_faturas }} <strong>{{ meses_extenso }} de {{ ano_referencia }}</strong>
+        ({{ qtd_meses }} {{ 'mês' if qtd_meses == 1 else 'meses' }}) {{ 'foi devidamente quitada' if qtd_meses == 1 else 'foram devidamente quitadas' }},
+        totalizando o valor de <strong>{{ valor_total_formatado }}</strong>
+        ({{ valor_por_extenso }}), conforme discriminado abaixo:
+    </p>
+
+    <!-- Tabela de Beneficiários -->
+    <table class="tabela-beneficiarios">
+        <thead>
+            <tr>
+                <th style="width: 38%;">Beneficiário</th>
+                <th style="width: 17%;">Parentesco</th>
+                <th class="valor" style="width: 17%;">Valor Mensal (R$)</th>
+                <th class="centro" style="width: 9%;">Meses</th>
+                <th class="valor" style="width: 19%;">Total no Ano (R$)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ben in todos_beneficiarios %}
+            <tr>
+                <td>{{ ben.nome }}</td>
+                <td>{{ ben.parentesco }}</td>
+                <td class="valor">{{ ben.valor_mensal_formatado }}</td>
+                <td class="centro">{{ ben.qtd_meses }}</td>
+                <td class="valor">{{ ben.valor_total_formatado }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="4">TOTAL GERAL NO ANO DE {{ ano_referencia }}</td>
+                <td class="valor">{{ valor_total_formatado }}</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="nota-meses">
+        Meses de referência incluídos: {{ meses_extenso }} de {{ ano_referencia }}.
+    </p>
+
+    <!-- Data e Local -->
+    <div class="data-local">
+        Campinas/SP, {{ data_emissao_extenso }}.
+    </div>
+
+    <!-- Assinatura -->
+    <div class="assinatura-bloco">
+        <img src="{{ assinatura_path }}" alt="Assinatura">
+        <div class="assinatura-nome">MARCELO MARTINS JULIANI</div>
+        <div class="assinatura-cargo">Vice Presidente da ANSEF/CAMPINAS</div>
+    </div>
+
+    <!-- Rodapé de Autenticidade -->
+    <div class="rodape-autenticidade">
+        Código de Controle e Autenticidade: {{ codigo_validacao }} —
+        Emitido eletronicamente pelo Sistema ANSEF/CAS.
+    </div>
+
+</body>
+</html>

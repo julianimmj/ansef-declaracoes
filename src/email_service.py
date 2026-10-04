@@ -412,3 +412,90 @@ def notificar_administrador_migracao_faixa(migracoes: list[dict]) -> tuple[bool,
         logger.error(f"Erro ao gerar e-mail de migração de faixa: {e}")
         return False, str(e)
 
+
+def notificar_administrador_nova_declaracao_anual(
+    titular_nome: str,
+    titular_cpf: str,
+    ano_referencia: int,
+    meses_descricao: str,
+    qtd_meses: int,
+    beneficiarios: list[dict],
+    valor_total: float,
+) -> tuple[bool, str]:
+    """
+    Envia e-mail HTML ao administrador notificando nova solicitação de
+    declaração ANUAL. Retorna (sucesso, mensagem). Nunca lança exceção.
+    """
+    config = obter_config_smtp()
+    if not config["user"] or not config["password"]:
+        msg_aviso = (
+            "Credenciais SMTP não configuradas. "
+            "Configure SMTP_USER e SMTP_PASSWORD nos Secrets do Streamlit."
+        )
+        logger.warning(msg_aviso)
+        return False, msg_aviso
+
+    try:
+        linhas = ""
+        for b in beneficiarios or []:
+            linhas += f"""
+            <tr>
+                <td style="padding:8px 12px;border:1px solid #ddd;">{b.get('nome', '')}</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;">{b.get('parentesco', '')}</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;text-align:right;">{formatar_moeda(b.get('valor_mensal', 0))}</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;text-align:center;">{b.get('qtd_meses', qtd_meses)}</td>
+                <td style="padding:8px 12px;border:1px solid #ddd;text-align:right;">{formatar_moeda(b.get('valor_total', 0))}</td>
+            </tr>"""
+
+        agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        corpo_html = f"""
+        <html>
+        <body style="font-family:Arial,Helvetica,sans-serif;color:#333;max-width:640px;margin:auto;">
+            <div style="background:#1B3A6B;padding:20px;text-align:center;">
+                <h1 style="color:white;margin:0;font-size:20px;">ANSEF/CAS - Sistema de Declarações</h1>
+            </div>
+            <div style="padding:20px;background:#f9f9f9;">
+                <h2 style="color:#1B3A6B;">📅 Nova Solicitação de Declaração ANUAL</h2>
+                <p>Uma nova solicitação de <strong>declaração anual</strong> de pagamento foi submetida e aguarda sua revisão e aprovação.</p>
+                <table style="width:100%;font-size:14px;margin:15px 0;">
+                    <tr><td style="padding:6px 0;font-weight:bold;width:180px;">Titular:</td><td style="padding:6px 0;">{titular_nome}</td></tr>
+                    <tr><td style="padding:6px 0;font-weight:bold;">CPF:</td><td style="padding:6px 0;">{formatar_cpf(titular_cpf)}</td></tr>
+                    <tr><td style="padding:6px 0;font-weight:bold;">Ano de Referência:</td><td style="padding:6px 0;">{ano_referencia}</td></tr>
+                    <tr><td style="padding:6px 0;font-weight:bold;">Meses incluídos:</td><td style="padding:6px 0;">{meses_descricao} ({qtd_meses})</td></tr>
+                    <tr><td style="padding:6px 0;font-weight:bold;">Valor Total no Ano:</td><td style="padding:6px 0;color:#1B3A6B;font-weight:bold;font-size:16px;">{formatar_moeda(valor_total)}</td></tr>
+                    <tr><td style="padding:6px 0;font-weight:bold;">Data/Hora do Envio:</td><td style="padding:6px 0;">{agora}</td></tr>
+                </table>
+                <h3 style="color:#1B3A6B;margin-top:20px;">👥 Beneficiários incluídos:</h3>
+                <table style="border-collapse:collapse;width:100%;font-size:13px;">
+                    <tr style="background:#1B3A6B;color:white;">
+                        <th style="padding:8px 12px;text-align:left;">Beneficiário</th>
+                        <th style="padding:8px 12px;text-align:left;">Parentesco</th>
+                        <th style="padding:8px 12px;text-align:right;">Mensal</th>
+                        <th style="padding:8px 12px;text-align:center;">Meses</th>
+                        <th style="padding:8px 12px;text-align:right;">Total</th>
+                    </tr>
+                    {linhas}
+                </table>
+                <div style="margin-top:25px;padding:15px;background:#e8f0fe;border-radius:8px;border-left:4px solid #1B3A6B;">
+                    <p style="margin:0;"><strong>🔒 Acesse a Área Restrita</strong> (aba <em>Declarações Anuais</em>) para revisar, aprovar e emitir a declaração.</p>
+                </div>
+            </div>
+            <div style="background:#eee;padding:12px;text-align:center;font-size:12px;color:#777;">
+                ANSEF/CAS — Associação dos Servidores da Polícia Federal em Campinas/SP<br>
+                Este é um e-mail automático gerado pelo sistema.
+            </div>
+        </body>
+        </html>
+        """
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[ANSEF/CAS] Nova Solicitação de Declaração ANUAL {ano_referencia} - {titular_nome}"
+        msg["From"] = config["user"]
+        msg["To"] = config["admin_email"]
+        msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+        return _conectar_e_enviar(config, msg)
+
+    except Exception as e:
+        logger.error(f"Erro inesperado ao montar e-mail da declaração anual: {e}")
+        return False, str(e)
+

@@ -94,3 +94,89 @@ def gerar_codigo_validacao(solicitacao_id: int, ano: int) -> str:
     seed = f"ANSEF-{solicitacao_id}-{ano}-SALT2026"
     h = hashlib.sha256(seed.encode()).hexdigest()[:8].upper()
     return f"ANSEF-{ano}-{h}"
+
+
+# ─── DECLARAÇÃO ANUAL ─────────────────────────────────────────────────────────
+
+def gerar_codigo_validacao_anual(declaracao_id: int, ano: int) -> str:
+    """
+    Gera código de autenticidade exclusivo para a declaração ANUAL.
+    Usa semente e prefixo distintos da declaração mensal para que os códigos
+    dos dois tipos de documento nunca colidam.
+    """
+    import hashlib
+    seed = f"ANSEF-ANUAL-{declaracao_id}-{ano}-SALT2026"
+    h = hashlib.sha256(seed.encode()).hexdigest()[:8].upper()
+    return f"ANSEF-A{ano}-{h}"
+
+
+def normalizar_meses(meses) -> list[int]:
+    """Converte lista/JSON de meses em lista ordenada e única de inteiros 1..12."""
+    import json as _json
+    if isinstance(meses, str):
+        try:
+            meses = _json.loads(meses)
+        except (ValueError, TypeError):
+            meses = []
+    resultado = set()
+    for m in meses or []:
+        try:
+            mi = int(m)
+        except (ValueError, TypeError):
+            continue
+        if 1 <= mi <= 12:
+            resultado.add(mi)
+    return sorted(resultado)
+
+
+def descrever_meses(meses) -> str:
+    """
+    Descreve meses por extenso agrupando sequências consecutivas.
+    Exemplos:
+        [1..12]           → 'janeiro a dezembro'
+        [1, 2, 3, 7]      → 'janeiro a março e julho'
+        [2, 5]            → 'fevereiro e maio'
+    """
+    lista = normalizar_meses(meses)
+    if not lista:
+        return ""
+
+    # Agrupa sequências consecutivas
+    grupos: list[list[int]] = []
+    for m in lista:
+        if grupos and m == grupos[-1][-1] + 1:
+            grupos[-1].append(m)
+        else:
+            grupos.append([m])
+
+    partes = []
+    for g in grupos:
+        if len(g) >= 3:
+            partes.append(f"{mes_por_extenso(g[0])} a {mes_por_extenso(g[-1])}")
+        else:
+            partes.extend(mes_por_extenso(m) for m in g)
+
+    if len(partes) == 1:
+        return partes[0]
+    return ", ".join(partes[:-1]) + " e " + partes[-1]
+
+
+def abreviar_meses(meses) -> str:
+    """Versão curta para listagens: 'Jan–Mar, Jul' ou 'Ano completo'."""
+    lista = normalizar_meses(meses)
+    if not lista:
+        return "-"
+    if lista == list(range(1, 13)):
+        return "Ano completo (12 meses)"
+    abrev = {m: mes_por_extenso(m)[:3].capitalize() for m in range(1, 13)}
+    grupos: list[list[int]] = []
+    for m in lista:
+        if grupos and m == grupos[-1][-1] + 1:
+            grupos[-1].append(m)
+        else:
+            grupos.append([m])
+    partes = [
+        abrev[g[0]] if len(g) == 1 else f"{abrev[g[0]]}–{abrev[g[-1]]}"
+        for g in grupos
+    ]
+    return ", ".join(partes)
