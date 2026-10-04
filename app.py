@@ -881,6 +881,33 @@ st.markdown("""
             line-height: 1.35 !important;
         }
 
+        /* ── SELEÇÃO DE MESES DA DECLARAÇÃO ANUAL NO CELULAR (GRADE 2 COLUNAS) ── */
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-mes_anual_"]),
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-adm_mes_a_"]) {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+            margin-bottom: 2px !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-mes_anual_"]) > div,
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-adm_mes_a_"]) > div {
+            flex: 1 1 calc(50% - 6px) !important;
+            min-width: 125px !important;
+            max-width: calc(50% - 3px) !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-mes_anual_"]) div[data-testid="stCheckbox"],
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-adm_mes_a_"]) div[data-testid="stCheckbox"] {
+            background: #F8FAFC !important;
+            border: 1px solid #CBD5E1 !important;
+            border-radius: 8px !important;
+            padding: 7px 10px !important;
+            margin-bottom: 4px !important;
+            min-height: 42px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
         /* ── CARTÕES DE MÉTRICAS EM GRADE 2x2 ── */
         div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {
             display: flex !important;
@@ -1439,17 +1466,23 @@ if modulo == "🏠 Área do Associado":
                 meses_selecionados = list(range(1, 13))
                 st.info("✅ Todos os 12 meses estão selecionados.")
             else:
-                meses_nomes = list(MESES_OPCOES.keys())
-                # 3 colunas x 4 linhas de checkboxes de meses
-                cols_m = st.columns(4)
-                for idx_m, nome_m in enumerate(meses_nomes):
-                    with cols_m[idx_m % 4]:
-                        if st.checkbox(
-                            nome_m,
-                            value=False,
-                            key=f"mes_anual_{MESES_OPCOES[nome_m]}",
-                        ):
-                            meses_selecionados.append(MESES_OPCOES[nome_m])
+                # Renderiza linha por linha (3 linhas x 4 colunas) para garantir
+                # a ordem cronológica estrita tanto no Desktop quanto no Celular (mobile)
+                meses_lista = list(MESES_OPCOES.items())
+                for r in range(0, 12, 4):
+                    cols_m = st.columns(4)
+                    for c in range(4):
+                        idx_m = r + c
+                        if idx_m < 12:
+                            nome_m, num_m = meses_lista[idx_m]
+                            with cols_m[c]:
+                                if st.checkbox(
+                                    nome_m,
+                                    value=False,
+                                    key=f"mes_anual_{num_m}",
+                                ):
+                                    meses_selecionados.append(num_m)
+                meses_selecionados.sort()
 
             qtd_meses_sel = len(meses_selecionados)
             if meses_selecionados:
@@ -2198,15 +2231,21 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             if adm_check_all:
                                 meses_editados_a = list(range(1, 13))
                             else:
-                                cols_m_adm = st.columns(4)
-                                for idx_m, (nome_mes, num_mes) in enumerate(MESES_OPCOES.items()):
-                                    with cols_m_adm[idx_m % 4]:
-                                        if st.checkbox(
-                                            nome_mes,
-                                            value=num_mes in meses_originais,
-                                            key=f"adm_mes_a_{dec_p['id']}_{num_mes}",
-                                        ):
-                                            meses_editados_a.append(num_mes)
+                                meses_lista_adm = list(MESES_OPCOES.items())
+                                for r_adm in range(0, 12, 4):
+                                    cols_m_adm = st.columns(4)
+                                    for c_adm in range(4):
+                                        idx_m_a = r_adm + c_adm
+                                        if idx_m_a < 12:
+                                            nome_mes, num_mes = meses_lista_adm[idx_m_a]
+                                            with cols_m_adm[c_adm]:
+                                                if st.checkbox(
+                                                    nome_mes,
+                                                    value=num_mes in meses_originais,
+                                                    key=f"adm_mes_a_{dec_p['id']}_{num_mes}",
+                                                ):
+                                                    meses_editados_a.append(num_mes)
+                                meses_editados_a.sort()
 
                             qtd_meses_adm = len(meses_editados_a)
                             st.markdown(
