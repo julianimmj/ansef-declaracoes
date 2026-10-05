@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "id": 1,
+    "codigo_validacao": "ANSEF-A2026-6728ADD3",
+    "titular_nome": "Marcio Carlos Rosa",
+    "titular_cpf": "57966346668",
+    "ano_referencia": 2026,
+    "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
+    "beneficiarios": "[{\"nome\": \"Marcio Carlos Rosa\", \"parentesco\": \"Titular\", \"valor_mensal\": 1496.0, \"qtd_meses\": 10, \"valor_total\": 14960.0}, {\"nome\": \"Danilo Soares Rosa\", \"parentesco\": \"Filho(a)\", \"valor_mensal\": 340.0, \"qtd_meses\": 10, \"valor_total\": 3400.0}, {\"nome\": \"Rosangela Alves Soares\", \"parentesco\": \"Cônjuge\", \"valor_mensal\": 1496.0, \"qtd_meses\": 10, \"valor_total\": 14960.0}]",
+    "valor_total": 33320.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-05 12:17:40",
+    "data_analise": null,
+    "observacoes_admin": null
+  }
+]
