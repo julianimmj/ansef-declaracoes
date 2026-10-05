@@ -12,5 +12,19 @@
     "data_solicitacao": "2026-10-05 12:17:40",
     "data_analise": "2026-10-05T15:25:50.319136",
     "observacoes_admin": null
+  },
+  {
+    "id": 2,
+    "codigo_validacao": "ANSEF-A2026-DBAFABD1",
+    "titular_nome": "Fabio de Paula Guerra",
+    "titular_cpf": "07656928723",
+    "ano_referencia": 2026,
+    "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
+    "beneficiarios": "[{\"nome\": \"Fabio de Paula Guerra\", \"parentesco\": \"Titular\", \"valor_mensal\": 845.0, \"qtd_meses\": 10, \"valor_total\": 8450.0}, {\"nome\": \"Letícia Maria de Rosa O. G.\", \"parentesco\": \"Cônjuge\", \"valor_mensal\": 845.0, \"qtd_meses\": 10, \"valor_total\": 8450.0}]",
+    "valor_total": 16900.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-05 22:45:33",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
