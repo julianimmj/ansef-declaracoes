@@ -22,9 +22,9 @@
     "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
     "beneficiarios": "[{\"nome\": \"Fabio de Paula Guerra\", \"parentesco\": \"Titular\", \"valor_mensal\": 845.0, \"qtd_meses\": 10, \"valor_total\": 8450.0}, {\"nome\": \"Letícia Maria de Rosa O. G.\", \"parentesco\": \"Cônjuge\", \"valor_mensal\": 845.0, \"qtd_meses\": 10, \"valor_total\": 8450.0}]",
     "valor_total": 16900.0,
-    "status": "PENDENTE",
+    "status": "APROVADO",
     "data_solicitacao": "2026-10-05 22:45:33",
-    "data_analise": null,
+    "data_analise": "2026-10-05T22:46:23.391934",
     "observacoes_admin": null
   }
 ]
