@@ -12,13 +12,28 @@ import csv
 import logging
 import threading
 import time
+import tempfile
+import pathlib
 from typing import Optional, Union, List, Dict, Any
 from datetime import datetime, date
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.environ.get("ANSEF_DB_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "ansef_database.db")
+# Cópia "semente" do banco versionada no repositório. NUNCA é escrita em tempo de execução:
+# no Streamlit Cloud, cada commit de sincronização faz a plataforma atualizar a pasta do
+# repositório, o que sobrescrevia o .db enquanto os arquivos -wal/-shm permaneciam,
+# corrompendo o banco ("database disk image is malformed").
+REPO_DB_SEED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ansef_database.db")
+
+
+def _caminho_db_runtime_padrao() -> str:
+    """Banco de execução fora da árvore do Git (imune às atualizações do repositório)."""
+    base = os.environ.get("ANSEF_RUNTIME_DIR") or os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime")
+    return os.path.join(base, "ansef_database.db")
+
+
+DB_PATH = os.environ.get("ANSEF_DB_PATH") or _caminho_db_runtime_padrao()
 CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
 SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
 CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "config_precos.json")
@@ -55,22 +70,174 @@ TABELA_FAIXAS_PADRAO = [
 ]
 
 
+# ─── INTEGRIDADE E AUTORRECUPERAÇÃO DO BANCO ─────────────────────────────────
+_MARCADORES_CORRUPCAO = (
+    "malformed", "not a database", "file is encrypted", "disk image",
+    "database corrupt", "unsupported file format",
+)
+_recuperacao_lock = threading.RLock()
+_recuperacao_estado = threading.local()
+
+
+def _eh_erro_corrupcao(e: BaseException) -> bool:
+    return isinstance(e, sqlite3.DatabaseError) and any(m in str(e).lower() for m in _MARCADORES_CORRUPCAO)
+
+
+def _banco_integro(db_path: str) -> bool:
+    """Executa PRAGMA quick_check. Erros não relacionados a corrupção (ex.: lock) não condenam o banco."""
+    if not os.path.exists(db_path):
+        return True
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        row = conn.execute("PRAGMA quick_check").fetchone()
+        return bool(row) and str(row[0]).lower() == "ok"
+    except sqlite3.DatabaseError as e:
+        return not _eh_erro_corrupcao(e)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _isolar_banco_corrompido(db_path: str) -> None:
+    """Move o banco corrompido (e seus -wal/-shm) para quarentena, preservando-o para análise."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for suf in ("", "-wal", "-shm", "-journal"):
+        p = db_path + suf
+        if os.path.exists(p):
+            try:
+                os.replace(p, f"{db_path}.corrompido-{ts}{suf}")
+            except Exception:
+                try:
+                    os.remove(p)
+                except Exception as e:
+                    logger.error(f"Não foi possível isolar {p}: {e}")
+
+
+def _semear_banco_runtime(db_path: str) -> None:
+    """Na primeira execução, copia a semente íntegra do repositório para o banco de execução."""
+    if os.path.exists(db_path) or not os.path.exists(REPO_DB_SEED_PATH):
+        return
+    if os.path.abspath(db_path) == os.path.abspath(REPO_DB_SEED_PATH):
+        return
+    src = dst = None
+    try:
+        uri = pathlib.Path(REPO_DB_SEED_PATH).resolve().as_uri() + "?mode=ro&immutable=1"
+        src = sqlite3.connect(uri, uri=True)
+        row = src.execute("PRAGMA quick_check").fetchone()
+        if not row or str(row[0]).lower() != "ok":
+            logger.warning("Semente do banco no repositório não está íntegra; será reconstruído pelos backups JSON.")
+            return
+        dst = sqlite3.connect(db_path)
+        src.backup(dst)
+    except Exception as e:
+        logger.warning(f"Falha ao semear banco de execução ({e}); será reconstruído pelos backups JSON.")
+        if dst is not None:
+            try:
+                dst.close()
+            except Exception:
+                pass
+            dst = None
+        for suf in ("", "-wal", "-shm", "-journal"):
+            try:
+                os.remove(db_path + suf)
+            except Exception:
+                pass
+    finally:
+        for c in (src, dst):
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
+
+def recuperar_banco_corrompido() -> bool:
+    """
+    Isola o banco corrompido e o reconstrói a partir dos backups permanentes
+    (integrantes.csv, config_precos.json, solicitacoes_backup.json e
+    declaracoes_anuais_backup.json). Retorna True se houve reconstrução.
+    """
+    with _recuperacao_lock:
+        if getattr(_recuperacao_estado, "ativo", False):
+            return False
+        db_path = _obter_db_path()
+        if _banco_integro(db_path):
+            return False  # já recuperado por outra thread
+        _recuperacao_estado.ativo = True
+        try:
+            logger.error("Banco SQLite corrompido detectado. Reconstruindo a partir dos backups JSON...")
+            _isolar_banco_corrompido(db_path)
+            inicializar_banco()
+            logger.warning("Banco SQLite reconstruído com sucesso a partir dos backups permanentes.")
+            return True
+        except Exception as e:
+            logger.error(f"Falha na reconstrução automática do banco: {e}")
+            return False
+        finally:
+            _recuperacao_estado.ativo = False
+
+
+def _rerun_streamlit_se_possivel() -> None:
+    """Após autorrecuperação, recarrega a página de forma transparente (apenas na thread do script)."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx() is None:
+            return
+        import streamlit as st
+    except Exception:
+        return
+    st.rerun()
+
+
 @contextmanager
 def get_connection():
-    """Context manager para conexões SQLite thread-safe."""
+    """Context manager para conexões SQLite thread-safe, com autorrecuperação de corrupção."""
     conn = sqlite3.connect(_obter_db_path(), timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.execute("PRAGMA foreign_keys=ON")
+    corrupcao = False
     try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA foreign_keys=ON")
         yield conn
         conn.commit()
-    except Exception:
-        conn.rollback()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        corrupcao = _eh_erro_corrupcao(e)
         raise
     finally:
         conn.close()
+        if corrupcao and not getattr(_recuperacao_estado, "ativo", False):
+            if recuperar_banco_corrompido():
+                _rerun_streamlit_se_possivel()
+
+
+def exportar_banco_bytes() -> bytes:
+    """Gera uma cópia consistente do banco (inclui dados ainda no WAL) para download."""
+    fd, tmp = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        src = sqlite3.connect(_obter_db_path(), timeout=30)
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        with open(tmp, "rb") as f:
+            return f.read()
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
 
 
 def _git_sync_background(*filepaths: str) -> None:
@@ -192,7 +359,16 @@ def padronizar_todos_nomes_banco(conn) -> None:
 
 def inicializar_banco():
     """Cria as tabelas, carrega os dados iniciais e atualiza mensalidades com a tabela de faixas."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_path = _obter_db_path()
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+
+    # Banco corrompido → quarentena; os dados são reconstruídos pelos backups JSON abaixo.
+    if not _banco_integro(db_path):
+        logger.error(f"Banco corrompido detectado na inicialização ({db_path}). Reconstruindo...")
+        _isolar_banco_corrompido(db_path)
+
+    # Primeira execução neste servidor: parte da semente íntegra versionada no repositório.
+    _semear_banco_runtime(db_path)
 
     with get_connection() as conn:
         conn.executescript("""

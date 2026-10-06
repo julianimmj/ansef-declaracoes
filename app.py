@@ -80,6 +80,7 @@ try:
         importar_backup_precos_json,
         CONFIG_PRECOS_PATH,
         DB_PATH,
+        exportar_banco_bytes,
         # Declarações anuais
         criar_declaracao_anual,
         listar_declaracoes_anuais_titular,
@@ -169,6 +170,7 @@ except ImportError:
         importar_backup_precos_json,
         CONFIG_PRECOS_PATH,
         DB_PATH,
+        exportar_banco_bytes,
         # Declarações anuais
         criar_declaracao_anual,
         listar_declaracoes_anuais_titular,
@@ -3228,7 +3230,8 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 st.markdown("##### 🛡️ Salvaguarda Permanente de Dados")
                 st.caption(
                     "O sistema mantém todas as solicitações e aprovações sincronizadas com o arquivo "
-                    "`data/solicitacoes_backup.json` e o banco `data/ansef_database.db`. "
+                    "`data/solicitacoes_backup.json` e `data/declaracoes_anuais_backup.json` (versionados no GitHub); "
+                    "o banco SQLite de execução é reconstruído automaticamente a partir deles se necessário. "
                     "Baixe cópias de segurança periódicas ou restaure dados a qualquer momento."
                 )
 
@@ -3267,9 +3270,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     )
 
                 with col_bk4:
-                    if os.path.exists(DB_PATH):
-                        with open(DB_PATH, "rb") as f_db:
-                            db_bytes = f_db.read()
+                    try:
+                        db_bytes = exportar_banco_bytes()
+                    except Exception:
+                        db_bytes = None
+                    if db_bytes:
                         st.download_button(
                             label="📥 Baixar Banco (.db)",
                             data=db_bytes,
