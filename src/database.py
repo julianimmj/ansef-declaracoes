@@ -25,21 +25,15 @@ logger = logging.getLogger(__name__)
 # repositório, o que sobrescrevia o .db enquanto os arquivos -wal/-shm permaneciam,
 # corrompendo o banco ("database disk image is malformed").
 REPO_DB_SEED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ansef_database.db")
-
-
-def _caminho_db_runtime_padrao() -> str:
-    """Banco de execução fora da árvore do Git (imune às atualizações do repositório)."""
-    base = os.environ.get("ANSEF_RUNTIME_DIR") or os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime")
-    return os.path.join(base, "ansef_database.db")
-
-
-DB_PATH = os.environ.get("ANSEF_DB_PATH") or _caminho_db_runtime_padrao()
+DB_PATH = os.environ.get("ANSEF_DB_PATH") or REPO_DB_SEED_PATH
 CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
 SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
 CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "config_precos.json")
 
 def _obter_db_path() -> str:
-    return os.environ.get("ANSEF_DB_PATH") or DB_PATH
+    path = os.environ.get("ANSEF_DB_PATH") or DB_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    return path
 
 def _obter_csv_path() -> str:
     return os.environ.get("ANSEF_CSV_PATH") or CSV_PATH
@@ -72,28 +66,44 @@ TABELA_FAIXAS_PADRAO = [
 
 # ─── INTEGRIDADE E AUTORRECUPERAÇÃO DO BANCO ─────────────────────────────────
 _MARCADORES_CORRUPCAO = (
-    "malformed", "not a database", "file is encrypted", "disk image",
-    "database corrupt", "unsupported file format",
+    "malformed",
+    "not a database",
+    "file is encrypted",
+    "disk image",
+    "database corrupt",
+    "unsupported file format",
+    "unable to open database file",
+    "no such table",
+    "no such column",
+    "corrupt",
 )
 _recuperacao_lock = threading.RLock()
 _recuperacao_estado = threading.local()
 
 
 def _eh_erro_corrupcao(e: BaseException) -> bool:
-    return isinstance(e, sqlite3.DatabaseError) and any(m in str(e).lower() for m in _MARCADORES_CORRUPCAO)
+    if not isinstance(e, (sqlite3.DatabaseError, sqlite3.OperationalError)):
+        return False
+    msg = str(e).lower()
+    return any(m in msg for m in _MARCADORES_CORRUPCAO)
 
 
 def _banco_integro(db_path: str) -> bool:
-    """Executa PRAGMA quick_check. Erros não relacionados a corrupção (ex.: lock) não condenam o banco."""
-    if not os.path.exists(db_path):
-        return True
+    """Valida se o arquivo existe, tem tamanho válido, passa no quick_check e contém tabelas mínimas."""
+    if not os.path.exists(db_path) or os.path.getsize(db_path) == 0:
+        return False
     conn = None
     try:
-        conn = sqlite3.connect(db_path, timeout=30)
+        conn = sqlite3.connect(db_path, timeout=5)
         row = conn.execute("PRAGMA quick_check").fetchone()
-        return bool(row) and str(row[0]).lower() == "ok"
-    except sqlite3.DatabaseError as e:
-        return not _eh_erro_corrupcao(e)
+        if not row or str(row[0]).lower() != "ok":
+            return False
+        tabelas = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        return {"membros", "solicitacoes", "tabela_faixas_etarias"}.issubset(tabelas)
+    except Exception:
+        return False
     finally:
         if conn is not None:
             try:
@@ -117,44 +127,6 @@ def _isolar_banco_corrompido(db_path: str) -> None:
                     logger.error(f"Não foi possível isolar {p}: {e}")
 
 
-def _semear_banco_runtime(db_path: str) -> None:
-    """Na primeira execução, copia a semente íntegra do repositório para o banco de execução."""
-    if os.path.exists(db_path) or not os.path.exists(REPO_DB_SEED_PATH):
-        return
-    if os.path.abspath(db_path) == os.path.abspath(REPO_DB_SEED_PATH):
-        return
-    src = dst = None
-    try:
-        uri = pathlib.Path(REPO_DB_SEED_PATH).resolve().as_uri() + "?mode=ro&immutable=1"
-        src = sqlite3.connect(uri, uri=True)
-        row = src.execute("PRAGMA quick_check").fetchone()
-        if not row or str(row[0]).lower() != "ok":
-            logger.warning("Semente do banco no repositório não está íntegra; será reconstruído pelos backups JSON.")
-            return
-        dst = sqlite3.connect(db_path)
-        src.backup(dst)
-    except Exception as e:
-        logger.warning(f"Falha ao semear banco de execução ({e}); será reconstruído pelos backups JSON.")
-        if dst is not None:
-            try:
-                dst.close()
-            except Exception:
-                pass
-            dst = None
-        for suf in ("", "-wal", "-shm", "-journal"):
-            try:
-                os.remove(db_path + suf)
-            except Exception:
-                pass
-    finally:
-        for c in (src, dst):
-            if c is not None:
-                try:
-                    c.close()
-                except Exception:
-                    pass
-
-
 def recuperar_banco_corrompido() -> bool:
     """
     Isola o banco corrompido e o reconstrói a partir dos backups permanentes
@@ -165,11 +137,9 @@ def recuperar_banco_corrompido() -> bool:
         if getattr(_recuperacao_estado, "ativo", False):
             return False
         db_path = _obter_db_path()
-        if _banco_integro(db_path):
-            return False  # já recuperado por outra thread
         _recuperacao_estado.ativo = True
         try:
-            logger.error("Banco SQLite corrompido detectado. Reconstruindo a partir dos backups JSON...")
+            logger.error("Banco SQLite corrompido ou inconsistente detectado. Reconstruindo a partir dos backups permanentes...")
             _isolar_banco_corrompido(db_path)
             inicializar_banco()
             logger.warning("Banco SQLite reconstruído com sucesso a partir dos backups permanentes.")
@@ -188,21 +158,48 @@ def _rerun_streamlit_se_possivel() -> None:
         if get_script_run_ctx() is None:
             return
         import streamlit as st
+        st.rerun()
     except Exception:
-        return
-    st.rerun()
+        pass
+
+
+def _conectar_com_resiliencia(max_tentativas: int = 4) -> sqlite3.Connection:
+    """Abre conexão SQLite com garantia de existência do diretório, retry para locks e autorrecuperação."""
+    db_path = _obter_db_path()
+
+    if not _banco_integro(db_path) and not getattr(_recuperacao_estado, "ativo", False):
+        logger.warning(f"Banco em {db_path} necessita recuperação/inicialização. Executando...")
+        recuperar_banco_corrompido()
+
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA foreign_keys=ON")
+            return conn
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+            if _eh_erro_corrupcao(e) and not getattr(_recuperacao_estado, "ativo", False):
+                logger.error(f"Erro de integridade na conexão (tentativa {tentativa}/{max_tentativas}): {e}")
+                recuperar_banco_corrompido()
+                time.sleep(0.3 * tentativa)
+                continue
+            elif "locked" in str(e).lower() or "busy" in str(e).lower():
+                logger.warning(f"Banco ocupado na conexão (tentativa {tentativa}/{max_tentativas}): {e}")
+                if tentativa < max_tentativas:
+                    time.sleep(0.4 * tentativa)
+                    continue
+            if tentativa == max_tentativas:
+                raise
 
 
 @contextmanager
 def get_connection():
     """Context manager para conexões SQLite thread-safe, com autorrecuperação de corrupção."""
-    conn = sqlite3.connect(_obter_db_path(), timeout=30, check_same_thread=False)
-    corrupcao = False
+    conn = _conectar_com_resiliencia()
+    precisa_recuperar = False
     try:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        conn.execute("PRAGMA foreign_keys=ON")
         yield conn
         conn.commit()
     except Exception as e:
@@ -210,11 +207,15 @@ def get_connection():
             conn.rollback()
         except Exception:
             pass
-        corrupcao = _eh_erro_corrupcao(e)
+        if _eh_erro_corrupcao(e):
+            precisa_recuperar = True
         raise
     finally:
-        conn.close()
-        if corrupcao and not getattr(_recuperacao_estado, "ativo", False):
+        try:
+            conn.close()
+        except Exception:
+            pass
+        if precisa_recuperar and not getattr(_recuperacao_estado, "ativo", False):
             if recuperar_banco_corrompido():
                 _rerun_streamlit_se_possivel()
 
@@ -360,17 +361,14 @@ def padronizar_todos_nomes_banco(conn) -> None:
 def inicializar_banco():
     """Cria as tabelas, carrega os dados iniciais e atualiza mensalidades com a tabela de faixas."""
     db_path = _obter_db_path()
-    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
-    # Banco corrompido → quarentena; os dados são reconstruídos pelos backups JSON abaixo.
-    if not _banco_integro(db_path):
-        logger.error(f"Banco corrompido detectado na inicialização ({db_path}). Reconstruindo...")
-        _isolar_banco_corrompido(db_path)
-
-    # Primeira execução neste servidor: parte da semente íntegra versionada no repositório.
-    _semear_banco_runtime(db_path)
-
-    with get_connection() as conn:
+    conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS membros (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -518,6 +516,13 @@ def inicializar_banco():
             _inicializar_declaracoes_anuais(conn)
         except Exception as e:
             logger.warning(f"Inicialização das declarações anuais ignorada: {e}")
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _carregar_csv(conn):
@@ -883,12 +888,16 @@ def verificar_migracoes_grupo(titular_nome: str) -> list[dict]:
 
 def listar_todas_migracoes() -> list[dict]:
     """Retorna todos os integrantes (titulares ou dependentes) que migraram de faixa etária."""
-    titulares = listar_titulares()
-    todas = []
-    for t in titulares:
-        migracoes = verificar_migracoes_grupo(t["titular_nome"])
-        todas.extend(migracoes)
-    return todas
+    try:
+        titulares = listar_titulares()
+        todas = []
+        for t in titulares:
+            migracoes = verificar_migracoes_grupo(t["titular_nome"])
+            todas.extend(migracoes)
+        return todas
+    except Exception as e:
+        logger.warning(f"listar_todas_migracoes falhou: {e}")
+        return []
 
 
 def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool:

@@ -223,11 +223,12 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
-# Inicializa o banco de dados exatamente uma vez por inicialização do servidor
-@st.cache_resource
+# Garante que o banco de dados exista, esteja íntegro e inicializado
 def _garantir_inicializacao_banco():
-    inicializar_banco()
-    return True
+    try:
+        inicializar_banco()
+    except Exception:
+        pass
 
 _garantir_inicializacao_banco()
 
