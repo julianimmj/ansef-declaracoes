@@ -823,5 +823,20 @@
     "data_solicitacao": "2026-10-06 11:52:08",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 65,
+    "codigo_validacao": "ANSEF-2026-CA2D1386",
+    "titular_nome": "Francisco Sandin Martins",
+    "titular_cpf": "41015851649",
+    "dependentes_incluidos": "[{\"nome\": \"Francisco Sandin Martins\", \"parentesco\": \"Titular\", \"valor\": 1496.0}]",
+    "mes_referencia": 7,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/07/2026",
+    "valor_total": 1496.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-06 11:52:28",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
