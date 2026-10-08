@@ -525,13 +525,23 @@ def inicializar_banco():
         conn.close()
 
 
-def _carregar_csv(conn):
+def _carregar_csv(conn, forcar: bool = False):
     """Carrega os dados do CSV de integrantes para a tabela membros, garantindo sincronia total com o repositório."""
     if not os.path.exists(CSV_PATH):
         return
 
+    # Se a tabela membros já possui registros e não foi solicitada carga forçada,
+    # mantém os registros existentes para evitar recriação contínua e garantir IDs estáveis.
+    count = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
+    if count > 0 and not forcar:
+        return
+
     # Limpa a tabela membros para refletir fielmente o CSV sincronizado no repositório
     conn.execute("DELETE FROM membros")
+    try:
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'membros'")
+    except Exception:
+        pass
 
     with open(CSV_PATH, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)

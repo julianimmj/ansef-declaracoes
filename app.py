@@ -28,6 +28,7 @@ if SRC_DIR not in sys.path:
 import json
 import io
 import base64
+import re
 from datetime import date, datetime
 
 import streamlit as st
@@ -223,12 +224,14 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
-# Garante que o banco de dados exista, esteja íntegro e inicializado
+# Inicializa o banco de dados exatamente uma vez por ciclo de vida do servidor
+@st.cache_resource
 def _garantir_inicializacao_banco():
     try:
         inicializar_banco()
     except Exception:
         pass
+    return True
 
 _garantir_inicializacao_banco()
 
@@ -1274,21 +1277,25 @@ if modulo == "🏠 Área do Associado":
             selecionados = []
             valor_soma = 0.0
 
+            safe_tit = re.sub(r'[^a-zA-Z0-9_]', '_', titular_logado)
             for i, membro in enumerate(grupo):
                 col_membro, col_valor = st.columns([3, 1.8])
 
-                m_id = membro.get("id", i)
                 parentesco = membro.get("grau_parentesco", "Titular")
                 idade_txt = f"{membro.get('idade_atual')} anos" if membro.get("idade_atual") is not None else ""
                 faixa_txt = membro.get("faixa_calculada", "")
                 aviso_mig = " ⚠️ [Faixa Reajustada]" if membro.get("migrou_faixa") else ""
+
+                slug_membro = re.sub(r'[^a-zA-Z0-9_]', '_', membro.get('beneficiario_nome', str(i)))
+                key_check_m = f"check_m_{safe_tit}_{i}_{slug_membro}"
+                key_valor_m = f"valor_m_{safe_tit}_{i}_{slug_membro}"
 
                 with col_membro:
                     label_box = f"**{membro['beneficiario_nome']}** ({parentesco}) — {idade_txt} | {faixa_txt}{aviso_mig}"
                     checked = st.checkbox(
                         label_box,
                         value=True,
-                        key=f"check_m_{m_id}_{i}",
+                        key=key_check_m,
                     )
 
                 with col_valor:
@@ -1299,7 +1306,7 @@ if modulo == "🏠 Área do Associado":
                         min_value=0.0,
                         step=0.01,
                         format="%.2f",
-                        key=f"valor_m_{m_id}_{i}",
+                        key=key_valor_m,
                         label_visibility="collapsed",
                         help=f"Valor de {membro['beneficiario_nome']}",
                     )
@@ -1508,20 +1515,24 @@ if modulo == "🏠 Área do Associado":
             beneficiarios_anual = []
             valor_soma_anual = 0.0
 
+            safe_tit_a = re.sub(r'[^a-zA-Z0-9_]', '_', titular_logado)
             for i, membro in enumerate(grupo):
                 col_membro_a, col_valor_a = st.columns([3, 1.8])
 
-                m_id = membro.get("id", i)
                 parentesco = membro.get("grau_parentesco", "Titular")
                 idade_txt = f"{membro.get('idade_atual')} anos" if membro.get("idade_atual") is not None else ""
                 faixa_txt = membro.get("faixa_calculada", "")
+
+                slug_membro_a = re.sub(r'[^a-zA-Z0-9_]', '_', membro.get('beneficiario_nome', str(i)))
+                key_check_anual = f"check_anual_{safe_tit_a}_{i}_{slug_membro_a}"
+                key_valor_anual = f"valor_anual_{safe_tit_a}_{i}_{slug_membro_a}"
 
                 with col_membro_a:
                     label_box_a = f"**{membro['beneficiario_nome']}** ({parentesco}) — {idade_txt} | {faixa_txt}"
                     checked_a = st.checkbox(
                         label_box_a,
                         value=True,
-                        key=f"check_anual_{m_id}_{i}",
+                        key=key_check_anual,
                     )
 
                 with col_valor_a:
@@ -1532,7 +1543,7 @@ if modulo == "🏠 Área do Associado":
                         min_value=0.0,
                         step=0.01,
                         format="%.2f",
-                        key=f"valor_anual_{m_id}_{i}",
+                        key=key_valor_anual,
                         label_visibility="collapsed",
                         help=f"Valor mensal de {membro['beneficiario_nome']}",
                     )
