@@ -883,5 +883,20 @@
     "data_solicitacao": "2026-10-06 11:53:41",
     "data_analise": "2026-10-06T23:22:38.235353",
     "observacoes_admin": null
+  },
+  {
+    "id": 70,
+    "codigo_validacao": "ANSEF-2026-6831ACCB",
+    "titular_nome": "Marcio Carlos Rosa",
+    "titular_cpf": "57966346668",
+    "dependentes_incluidos": "[{\"nome\": \"Rosangela Alves Soares\", \"parentesco\": \"Cônjuge\", \"valor\": 1496.0}]",
+    "mes_referencia": 10,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/10/2026",
+    "valor_total": 1496.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-09 11:50:29",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
