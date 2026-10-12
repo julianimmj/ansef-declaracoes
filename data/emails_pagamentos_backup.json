@@ -122,7 +122,20 @@
       "status_pagamento": "PAGO",
       "valor_esperado": 2094.0,
       "valor_pago": 2094.0,
+      "valor_uniodonto": 0.0,
+      "valor_total_esperado": 0.0,
       "data_pagamento": "10/10/2026",
+      "observacoes": ""
+    },
+    {
+      "titular_nome": "Carlos Sergio Praciano P.",
+      "mes_ano": "2026-10",
+      "status_pagamento": "PENDENTE",
+      "valor_esperado": 1000.0,
+      "valor_pago": 0.0,
+      "valor_uniodonto": 72.4,
+      "valor_total_esperado": 1072.4,
+      "data_pagamento": "",
       "observacoes": ""
     }
   ]

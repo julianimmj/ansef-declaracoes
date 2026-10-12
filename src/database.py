@@ -460,6 +460,8 @@ def inicializar_banco():
                 status_pagamento TEXT NOT NULL DEFAULT 'PENDENTE',
                 valor_esperado REAL DEFAULT 0.0,
                 valor_pago REAL DEFAULT 0.0,
+                valor_uniodonto REAL DEFAULT 0.0,
+                valor_total_esperado REAL DEFAULT 0.0,
                 data_pagamento TEXT,
                 observacoes TEXT DEFAULT '',
                 sol_id INTEGER,
@@ -2694,7 +2696,7 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
                 existentes_emails[k] = d
 
             for r in c.execute(
-                "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
+                "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
             ).fetchall():
                 d = dict(r)
                 k = (d.get("titular_nome", "").strip().lower(), d.get("mes_ano", "").strip())
@@ -2746,14 +2748,16 @@ def _carregar_backup_emails_pagamentos(conn) -> None:
             try:
                 conn.execute("""
                     INSERT OR IGNORE INTO historico_pagamentos
-                        (titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     item.get("titular_nome", ""),
                     item.get("mes_ano", ""),
                     item.get("status_pagamento", "PENDENTE"),
                     item.get("valor_esperado", 0.0),
                     item.get("valor_pago", 0.0),
+                    item.get("valor_uniodonto", 0.0),
+                    item.get("valor_total_esperado", 0.0),
                     item.get("data_pagamento", ""),
                     item.get("observacoes", ""),
                 ))
@@ -2789,6 +2793,8 @@ def _garantir_tabelas_emails_pagamentos(conn) -> None:
             status_pagamento TEXT NOT NULL DEFAULT 'PENDENTE',
             valor_esperado REAL DEFAULT 0.0,
             valor_pago REAL DEFAULT 0.0,
+            valor_uniodonto REAL DEFAULT 0.0,
+            valor_total_esperado REAL DEFAULT 0.0,
             data_pagamento TEXT,
             observacoes TEXT DEFAULT '',
             sol_id INTEGER,
@@ -2800,6 +2806,16 @@ def _garantir_tabelas_emails_pagamentos(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_historico_mes_ano
             ON historico_pagamentos (mes_ano);
     """)
+    # Migração automática das novas colunas de Uniodonto se necessário
+    try:
+        conn.execute("ALTER TABLE historico_pagamentos ADD COLUMN valor_uniodonto REAL DEFAULT 0.0")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE historico_pagamentos ADD COLUMN valor_total_esperado REAL DEFAULT 0.0")
+    except Exception:
+        pass
+
     # Auto-recupera registros do JSON se a tabela estiver vazia
     try:
         qtd = conn.execute("SELECT COUNT(*) FROM titular_emails").fetchone()[0]
@@ -2925,11 +2941,14 @@ def _mes_ano_str(mes: int, ano: int) -> str:
 
 def registrar_pagamento(titular_nome: str, mes: int, ano: int,
                         status: str, valor_esperado: float = 0.0,
-                        valor_pago: float = 0.0, data_pagamento: str = "",
+                        valor_pago: float = 0.0,
+                        valor_uniodonto: float = 0.0,
+                        valor_total_esperado: float = 0.0,
+                        data_pagamento: str = "",
                         observacoes: str = "", sol_id: int = None) -> tuple[bool, str]:
     """
-    Registra ou atualiza o status de pagamento de um titular para um mês/ano específico.
-    Retorna (sucesso, mensagem).
+    Registra ou atualiza o status de pagamento de um titular para um mês/ano específico,
+    incluindo plano de saúde e Uniodonto. Retorna (sucesso, mensagem).
     """
     nome_limpo = padronizar_nome(titular_nome).strip()
     status_norm = status.upper().strip()
@@ -2937,6 +2956,9 @@ def registrar_pagamento(titular_nome: str, mes: int, ano: int,
         return False, f"Status inválido. Use um de: {', '.join(STATUS_PAGAMENTO_VALIDOS)}."
     if not (1 <= mes <= 12):
         return False, "Mês inválido (1-12)."
+
+    if valor_total_esperado <= 0.0:
+        valor_total_esperado = round((valor_esperado or 0.0) + (valor_uniodonto or 0.0), 2)
 
     mes_ano = _mes_ano_str(mes, ano)
     agora = datetime.now().isoformat()
@@ -2946,19 +2968,22 @@ def registrar_pagamento(titular_nome: str, mes: int, ano: int,
         conn.execute("""
             INSERT INTO historico_pagamentos
                 (titular_nome, mes_ano, status_pagamento, valor_esperado,
-                 valor_pago, data_pagamento, observacoes, sol_id, data_atualizacao)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes, sol_id, data_atualizacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(titular_nome, mes_ano) DO UPDATE SET
-                status_pagamento = excluded.status_pagamento,
-                valor_esperado   = COALESCE(NULLIF(excluded.valor_esperado, 0.0), historico_pagamentos.valor_esperado),
-                valor_pago       = excluded.valor_pago,
-                data_pagamento   = excluded.data_pagamento,
-                observacoes      = excluded.observacoes,
-                sol_id           = COALESCE(excluded.sol_id, historico_pagamentos.sol_id),
-                data_atualizacao = excluded.data_atualizacao
+                status_pagamento     = excluded.status_pagamento,
+                valor_esperado       = COALESCE(NULLIF(excluded.valor_esperado, 0.0), historico_pagamentos.valor_esperado),
+                valor_pago           = excluded.valor_pago,
+                valor_uniodonto      = excluded.valor_uniodonto,
+                valor_total_esperado = excluded.valor_total_esperado,
+                data_pagamento       = excluded.data_pagamento,
+                observacoes          = excluded.observacoes,
+                sol_id               = COALESCE(excluded.sol_id, historico_pagamentos.sol_id),
+                data_atualizacao     = excluded.data_atualizacao
         """, (
             nome_limpo, mes_ano, status_norm,
             valor_esperado, valor_pago,
+            valor_uniodonto, valor_total_esperado,
             data_pagamento or "", observacoes or "",
             sol_id, agora
         ))

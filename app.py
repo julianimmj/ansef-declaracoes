@@ -3249,9 +3249,15 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     _grupo_pag = buscar_grupo_familiar(_pag_tit)
                     _valor_auto = round(sum(m.get("valor_vigente", 0.0) for m in _grupo_pag), 2)
                     _migracoes_grupo = [m for m in _grupo_pag if m.get("migrou_faixa")]
+
+                    # Consulta do plano odontológico Uniodonto para o titular
+                    _u_tit = obter_uniodonto_titular(_pag_tit)
+                    _tem_uniodonto = _u_tit is not None
+                    _val_uniodonto_auto = round(_u_tit["valor_total"], 2) if _tem_uniodonto else 0.0
+                    _val_total_esperado_auto = round(_valor_auto + _val_uniodonto_auto, 2)
                     _data_padrao_pag = f"10/{_mes_pag:02d}/{_ano_pag}"
 
-                    # Sincronização automática do valor esperado (somatório do grupo) e data padrão
+                    # Sincronização automática dos valores esperados e data padrão
                     _reset_acionado = st.session_state.pop("_reset_pag_form", False)
                     _tit_mudou = st.session_state.get("_ultimo_titular_pag") != _pag_tit
                     _data_mudou = st.session_state.get("_ultimo_mes_ano_pag") != (_mes_pag, _ano_pag)
@@ -3260,6 +3266,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         st.session_state["_ultimo_titular_pag"] = _pag_tit
                         st.session_state["_ultimo_mes_ano_pag"] = (_mes_pag, _ano_pag)
                         st.session_state["pag_reg_vEsp"] = float(_valor_auto)
+                        st.session_state["pag_reg_vUnio"] = float(_val_uniodonto_auto)
                         st.session_state["pag_reg_data"] = _data_padrao_pag
                         st.session_state.pop("pag_reg_vPago", None)
 
@@ -3301,13 +3308,36 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             f"</div>"
                             for m in _grupo_pag
                         ])
+
+                        if _tem_uniodonto:
+                            uniodonto_card_html = (
+                                f"<div style='display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 6px; margin-top: 8px; flex-wrap: wrap; gap: 6px;'>"
+                                f"<div style='display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: #166534; font-weight: 600;'>"
+                                f"<span>🦷 Plano Odontológico Uniodonto:</span> <span style='background:#DCFCE7; color:#15803D; padding:2px 8px; border-radius:12px; font-size:0.78rem; font-weight:700;'>Contratado ({_u_tit['vidas']} vida{'s' if _u_tit['vidas'] > 1 else ''} • {formatar_moeda(_u_tit['valor_por_vida'])}/vida)</span>"
+                                f"</div>"
+                                f"<div style='font-weight: 700; color: #15803D; font-size: 0.92rem;'>+ {formatar_moeda(_val_uniodonto_auto)}</div>"
+                                f"</div>"
+                            )
+                        else:
+                            uniodonto_card_html = (
+                                f"<div style='padding: 6px 10px; background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 6px; margin-top: 8px; font-size: 0.83rem; color: #64748B; display:flex; justify-content:space-between;'>"
+                                f"<span>🦷 Plano Odontológico Uniodonto: <strong>Não contratado para este titular</strong></span>"
+                                f"<span>R$ 0,00</span>"
+                                f"</div>"
+                            )
+
                         st.markdown(f"""
                         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 14px; margin: 6px 0 16px 0;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
                                 <span style="font-weight: 700; font-size: 0.86rem; color: #334155;">👥 Grupo Familiar ({len(_grupo_pag)} {'integrante' if len(_grupo_pag) == 1 else 'integrantes'})</span>
-                                <span style="font-size: 0.85rem; color: #475569;">Total Calculado: <strong style="color: #1B3A6B; font-size: 0.94rem;">{formatar_moeda(_valor_auto)}</strong></span>
+                                <div style="font-size: 0.84rem; color: #475569;">
+                                    Saúde: <strong>{formatar_moeda(_valor_auto)}</strong>
+                                    {' • Odonto: <strong style="color:#15803D;">' + formatar_moeda(_val_uniodonto_auto) + '</strong>' if _tem_uniodonto else ''}
+                                    • Total Consolidado: <strong style="color: #1B3A6B; font-size: 0.94rem;">{formatar_moeda(_val_total_esperado_auto)}</strong>
+                                </div>
                             </div>
                             {itens_grupo_html}
+                            {uniodonto_card_html}
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -3328,43 +3358,67 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             help="Preenchida por padrão no dia 10 do mês e ano selecionados. Altere se necessário.",
                         )
 
-                    # ── BLOCO 2: VALORES FINANCEIROS (Simetria perfeita de inputs) ──
+                    # ── BLOCO 2: DISCRIMINAÇÃO DOS VALORES (Saúde e Uniodonto) ──
                     _col_v1, _col_v2 = st.columns(2)
                     with _col_v1:
                         _pag_vEsperado = st.number_input(
-                            "Valor Esperado (R$):",
+                            "Valor Esperado Saúde (R$):",
                             min_value=0.0,
-                            value=_valor_auto,
+                            value=float(st.session_state.get("pag_reg_vEsp", _valor_auto)),
                             step=0.01,
                             format="%.2f",
                             key="pag_reg_vEsp",
-                            help="Preenchido automaticamente com base na soma das vidas do grupo familiar.",
+                            help="Preenchido automaticamente com base na soma das vidas de saúde do grupo familiar.",
                         )
                     with _col_v2:
+                        _pag_vUniodonto = st.number_input(
+                            "Valor Uniodonto (R$):",
+                            min_value=0.0,
+                            value=float(st.session_state.get("pag_reg_vUnio", _val_uniodonto_auto)),
+                            step=0.01,
+                            format="%.2f",
+                            key="pag_reg_vUnio",
+                            help=f"{'Contratado: ' + str(_u_tit['vidas']) + ' vida(s)' if _tem_uniodonto else 'Titular não possui plano Uniodonto contratado.'}",
+                        )
+
+                    # ── BLOCO 3: TOTAL ESPERADO (Saúde + Odonto) E VALOR PAGO EFETIVO ──
+                    _pag_vTotalEsperado = round(_pag_vEsperado + _pag_vUniodonto, 2)
+
+                    _col_tot1, _col_tot2 = st.columns(2)
+                    with _col_tot1:
+                        st.number_input(
+                            "Total Esperado (Saúde + Odonto) (R$):",
+                            min_value=0.0,
+                            value=_pag_vTotalEsperado,
+                            step=0.01,
+                            format="%.2f",
+                            disabled=True,
+                            key=f"disp_tot_esp_{_pag_tit}_{_mes_pag}_{_ano_pag}",
+                            help="Soma automática do Valor Esperado de Saúde com o Valor da Uniodonto.",
+                        )
+                    with _col_tot2:
                         _pag_vPago = st.number_input(
-                            "Valor Pago (R$):",
+                            "Valor Pago Efetivo (R$):",
                             min_value=0.0,
                             step=0.01,
                             format="%.2f",
                             key="pag_reg_vPago",
-                            help="Informe o valor efetivamente recebido. Use o botão abaixo para copiar o esperado se for integral.",
+                            help="Informe o valor total efetivamente recebido (Saúde + Odonto).",
                         )
 
-                    # ── AÇÃO RÁPIDA: Copiar esperado para pago sem desalinhamento ──
-                    def _copiar_esperado_cb():
-                        st.session_state["pag_reg_vPago"] = float(st.session_state.get("pag_reg_vEsp", _valor_auto))
+                    # ── AÇÃO RÁPIDA: Copiar Total Esperado para Valor Pago ──
+                    def _copiar_total_cb():
+                        st.session_state["pag_reg_vPago"] = float(_pag_vTotalEsperado)
 
-                    _col_cop1, _ = st.columns([1.5, 1])
-                    with _col_cop1:
-                        st.button(
-                            f"📋 Copiar Esperado ({formatar_moeda(_pag_vEsperado)}) para Valor Pago",
-                            key="btn_copiar_esperado",
-                            use_container_width=True,
-                            on_click=_copiar_esperado_cb,
-                            help="Preenche instantaneamente o campo Valor Pago com o Valor Esperado.",
-                        )
+                    st.button(
+                        f"📋 Copiar Total Esperado ({formatar_moeda(_pag_vTotalEsperado)}) para Valor Pago",
+                        key="btn_copiar_total",
+                        use_container_width=True,
+                        on_click=_copiar_total_cb,
+                        help="Preenche instantaneamente o campo Valor Pago com o Total Esperado (Saúde + Uniodonto).",
+                    )
 
-                    # ── BLOCO 3: OBSERVAÇÕES ──
+                    # ── BLOCO 4: OBSERVAÇÕES ──
                     _pag_obs = st.text_input(
                         "Observações do Pagamento (opcional):",
                         placeholder="Ex: Comprovante PIX recebido, acerto de diferença pendente...",
@@ -3385,6 +3439,8 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             status=_pag_status,
                             valor_esperado=_pag_vEsperado,
                             valor_pago=_pag_vPago,
+                            valor_uniodonto=_pag_vUniodonto,
+                            valor_total_esperado=_pag_vTotalEsperado,
                             data_pagamento=_pag_data,
                             observacoes=_pag_obs,
                         )
@@ -3450,7 +3506,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                         titular_nome=_pag_tit,
                                         mes_referencia=_mes_pag,
                                         ano_referencia=_ano_pag,
-                                        valor_esperado=_pag_vEsperado,
+                                        valor_esperado=_pag_vTotalEsperado,
                                         emails_titular=_emails_reg,
                                         observacoes=_obs_notif_reg,
                                     )
@@ -3459,7 +3515,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                         titular_nome=_pag_tit,
                                         mes_referencia=_mes_pag,
                                         ano_referencia=_ano_pag,
-                                        valor_esperado=_pag_vEsperado,
+                                        valor_esperado=_pag_vTotalEsperado,
                                         valor_pago=_pag_vPago,
                                         emails_titular=_emails_reg,
                                         observacoes=_obs_notif_reg,
@@ -3485,6 +3541,17 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     if _lista_pag:
                         for _p in _lista_pag:
                             _tn = _p.get("titular_nome")
+                            _u = obter_uniodonto_titular(_tn)
+                            _p_unio = _p.get("valor_uniodonto", 0.0) or (_u["valor_total"] if _u else 0.0)
+                            if _u:
+                                _p["uniodonto_info"] = f"🦷 Sim ({_u['vidas']}v: {formatar_moeda(_p_unio)})"
+                            else:
+                                _p["uniodonto_info"] = "Não"
+
+                            _p_esp = _p.get("valor_esperado", 0.0) or 0.0
+                            _p_tot = _p.get("valor_total_esperado", 0.0) or round(_p_esp + _p_unio, 2)
+                            _p["total_consolidado"] = _p_tot
+
                             _m_list = _migs_por_titular.get(_tn, [])
                             if _m_list:
                                 _p["mudanca_faixa"] = "⚠️ Sim (" + ", ".join(f"{x['beneficiario_nome']}: {x['faixa_calculada']}" for x in _m_list) + ")"
@@ -3492,12 +3559,14 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 _p["mudanca_faixa"] = "Não"
 
                         _df_pag = pd.DataFrame(_lista_pag)[
-                            ["titular_nome", "status_pagamento", "valor_esperado",
-                             "valor_pago", "mudanca_faixa", "data_pagamento", "observacoes"]
+                            ["titular_nome", "status_pagamento", "valor_esperado", "uniodonto_info",
+                             "total_consolidado", "valor_pago", "mudanca_faixa", "data_pagamento", "observacoes"]
                         ].rename(columns={
                             "titular_nome": "Titular",
                             "status_pagamento": "Status",
-                            "valor_esperado": "Esperado (R$)",
+                            "valor_esperado": "Esperado Saúde (R$)",
+                            "uniodonto_info": "Uniodonto",
+                            "total_consolidado": "Total Esperado (R$)",
                             "valor_pago": "Pago (R$)",
                             "mudanca_faixa": "Mudança de Faixa",
                             "data_pagamento": "Data Pag.",
