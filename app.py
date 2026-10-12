@@ -3261,10 +3261,12 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     _reset_acionado = st.session_state.pop("_reset_pag_form", False)
                     _tit_mudou = st.session_state.get("_ultimo_titular_pag") != _pag_tit
                     _data_mudou = st.session_state.get("_ultimo_mes_ano_pag") != (_mes_pag, _ano_pag)
+                    _preco_mudou = st.session_state.get("_ultimo_valor_auto") != (_valor_auto, _val_uniodonto_auto)
 
-                    if _reset_acionado or _tit_mudou or _data_mudou:
+                    if _reset_acionado or _tit_mudou or _data_mudou or _preco_mudou:
                         st.session_state["_ultimo_titular_pag"] = _pag_tit
                         st.session_state["_ultimo_mes_ano_pag"] = (_mes_pag, _ano_pag)
+                        st.session_state["_ultimo_valor_auto"] = (_valor_auto, _val_uniodonto_auto)
                         st.session_state["pag_reg_vEsp"] = float(_valor_auto)
                         st.session_state["pag_reg_vUnio"] = float(_val_uniodonto_auto)
                         st.session_state["pag_reg_data"] = _data_padrao_pag
