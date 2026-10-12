@@ -130,12 +130,12 @@
     {
       "titular_nome": "Carlos Sergio Praciano P.",
       "mes_ano": "2026-10",
-      "status_pagamento": "PAGO",
-      "valor_esperado": 4188.0,
-      "valor_pago": 4260.4,
+      "status_pagamento": "PENDENTE",
+      "valor_esperado": 1000.0,
+      "valor_pago": 0.0,
       "valor_uniodonto": 72.4,
-      "valor_total_esperado": 4260.4,
-      "data_pagamento": "10/10/2026",
+      "valor_total_esperado": 1072.4,
+      "data_pagamento": "",
       "observacoes": ""
     },
     {
@@ -190,6 +190,17 @@
       "valor_pago": 1532.2,
       "valor_uniodonto": 36.2,
       "valor_total_esperado": 1532.2,
+      "data_pagamento": "10/10/2026",
+      "observacoes": ""
+    },
+    {
+      "titular_nome": "Ivan Esteves Ribeiro Filho",
+      "mes_ano": "2026-10",
+      "status_pagamento": "PAGO",
+      "valor_esperado": 4102.0,
+      "valor_pago": 4102.0,
+      "valor_uniodonto": 0.0,
+      "valor_total_esperado": 4102.0,
       "data_pagamento": "10/10/2026",
       "observacoes": ""
     }
