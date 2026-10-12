@@ -3235,11 +3235,6 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 if not _tits_pag:
                     st.warning("Nenhum titular cadastrado.")
                 else:
-                    # Reset seguro de campos antes da instanciação dos widgets
-                    if st.session_state.pop("_reset_pag_form", False):
-                        st.session_state.pop("pag_reg_data", None)
-                        st.session_state.pop("pag_reg_vPago", None)
-
                     _todas_migs = listar_todas_migracoes()
                     _titulares_com_migracao = {m["titular_nome"] for m in _todas_migs}
 
@@ -3254,6 +3249,19 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     _grupo_pag = buscar_grupo_familiar(_pag_tit)
                     _valor_auto = round(sum(m.get("valor_vigente", 0.0) for m in _grupo_pag), 2)
                     _migracoes_grupo = [m for m in _grupo_pag if m.get("migrou_faixa")]
+                    _data_padrao_pag = f"10/{_mes_pag:02d}/{_ano_pag}"
+
+                    # Sincronização automática do valor esperado (somatório do grupo) e data padrão
+                    _reset_acionado = st.session_state.pop("_reset_pag_form", False)
+                    _tit_mudou = st.session_state.get("_ultimo_titular_pag") != _pag_tit
+                    _data_mudou = st.session_state.get("_ultimo_mes_ano_pag") != (_mes_pag, _ano_pag)
+
+                    if _reset_acionado or _tit_mudou or _data_mudou:
+                        st.session_state["_ultimo_titular_pag"] = _pag_tit
+                        st.session_state["_ultimo_mes_ano_pag"] = (_mes_pag, _ano_pag)
+                        st.session_state["pag_reg_vEsp"] = float(_valor_auto)
+                        st.session_state["pag_reg_data"] = _data_padrao_pag
+                        st.session_state.pop("pag_reg_vPago", None)
 
                     if _migracoes_grupo:
                         itens_mig_html = "".join([
@@ -3312,11 +3320,6 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             key="pag_reg_status",
                         )
                     with _col_st2:
-                        _data_padrao_pag = f"10/{_mes_pag:02d}/{_ano_pag}"
-                        if st.session_state.get("_ultimo_mes_ano_data") != (_mes_pag, _ano_pag):
-                            st.session_state["_ultimo_mes_ano_data"] = (_mes_pag, _ano_pag)
-                            st.session_state.pop("pag_reg_data", None)
-
                         _pag_data = st.text_input(
                             "Data do Pagamento:",
                             value=st.session_state.get("pag_reg_data", _data_padrao_pag),
