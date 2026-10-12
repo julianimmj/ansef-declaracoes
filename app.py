@@ -3201,15 +3201,49 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 if not _tits_pag:
                     st.warning("Nenhum titular cadastrado.")
                 else:
+                    _todas_migs = listar_todas_migracoes()
+                    _titulares_com_migracao = {m["titular_nome"] for m in _todas_migs}
+
                     _nomes_pag = [t["titular_nome"] for t in _tits_pag]
-                    _pag_tit = st.selectbox("Titular:", _nomes_pag, key="pag_reg_tit")
+                    _pag_tit = st.selectbox(
+                        "Titular:",
+                        _nomes_pag,
+                        format_func=lambda n: f"{n} ⚠️ (Mudança de Faixa)" if n in _titulares_com_migracao else n,
+                        key="pag_reg_tit",
+                    )
 
                     _grupo_pag = buscar_grupo_familiar(_pag_tit)
                     _valor_auto = round(sum(m.get("valor_vigente", 0.0) for m in _grupo_pag), 2)
+                    _migracoes_grupo = [m for m in _grupo_pag if m.get("migrou_faixa")]
+
+                    if _migracoes_grupo:
+                        itens_mig_html = "".join([
+                            f"<li style='margin-bottom: 5px;'>"
+                            f"<strong>{m['beneficiario_nome']}</strong> ({m.get('grau_parentesco', 'Integrante')}): "
+                            f"completou <strong>{m.get('idade_atual', '-')} anos</strong> e mudou da faixa <em>{m.get('faixa_anterior', '-')}</em> "
+                            f"({formatar_moeda(m.get('valor_faixa_anterior', 0.0))}) para a faixa <strong>{m.get('faixa_calculada', '-')}</strong>. "
+                            f"Novo valor de tabela: <strong style='color:#B94A48;'>{formatar_moeda(m.get('valor_faixa_atual', 0.0))}</strong> "
+                            f"(Plano {m.get('tipo_plano_nome', 'Coletivo')})."
+                            f"</li>"
+                            for m in _migracoes_grupo
+                        ])
+                        st.markdown(f"""
+                        <div style="background-color: #FFF3CD; border: 1px solid #FCD34D; border-left: 5px solid #D97706; border-radius: 6px; padding: 12px 16px; margin: 8px 0 14px 0;">
+                            <h5 style="color: #92400E; margin: 0 0 6px 0; display: flex; align-items: center; gap: 6px;">
+                                ⚠️ <span>Mudança de Faixa Etária Registrada no Grupo Familiar</span>
+                            </h5>
+                            <p style="color: #92400E; font-size: 0.92rem; margin: 0 0 6px 0;">
+                                Integrante(s) deste grupo familiar atingiram idade para nova faixa etária. O valor esperado calculado de <strong>{formatar_moeda(_valor_auto)}</strong> já reflete este reajuste:
+                            </p>
+                            <ul style="color: #92400E; font-size: 0.91rem; margin: 0 0 4px 0; padding-left: 20px;">
+                                {itens_mig_html}
+                            </ul>
+                        </div>
+                        """, unsafe_allow_html=True)
 
                     if _grupo_pag:
                         _linhas_grupo = " | ".join(
-                            f"{m['beneficiario_nome']} ({m.get('faixa_calculada', '-')}): "
+                            f"{m['beneficiario_nome']} ({m.get('faixa_calculada', '-')}{' ⚠️ [Mudança de Faixa]' if m.get('migrou_faixa') else ''}): "
                             f"{formatar_moeda(m.get('valor_vigente', 0.0))}"
                             for m in _grupo_pag
                         )
@@ -3303,8 +3337,12 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 key="tipo_notif_reg",
                             )
                         with _col_notif2:
+                            _obs_padrao = ""
+                            if _migracoes_grupo:
+                                _obs_padrao = "Aviso: houve alteração de faixa etária no grupo familiar (" + ", ".join(f"{x['beneficiario_nome']}: {x['faixa_calculada']}" for x in _migracoes_grupo) + ")."
                             _obs_notif_reg = st.text_input(
                                 "Observacao adicional (opcional):",
+                                value=_obs_padrao,
                                 placeholder="Ex: Regularizar ate dia 15...",
                                 key="obs_notif_reg",
                             )
@@ -3344,15 +3382,31 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 st.markdown(f"##### Status de Pagamentos - {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}")
                 try:
                     _lista_pag = listar_historico_mes_ano(_mes_pag, _ano_pag)
+                    _todas_migs = listar_todas_migracoes()
+                    _migs_por_titular = {}
+                    for _m in _todas_migs:
+                        _tn = _m.get("titular_nome")
+                        if _tn:
+                            _migs_por_titular.setdefault(_tn, []).append(_m)
+
                     if _lista_pag:
+                        for _p in _lista_pag:
+                            _tn = _p.get("titular_nome")
+                            _m_list = _migs_por_titular.get(_tn, [])
+                            if _m_list:
+                                _p["mudanca_faixa"] = "⚠️ Sim (" + ", ".join(f"{x['beneficiario_nome']}: {x['faixa_calculada']}" for x in _m_list) + ")"
+                            else:
+                                _p["mudanca_faixa"] = "Não"
+
                         _df_pag = pd.DataFrame(_lista_pag)[
                             ["titular_nome", "status_pagamento", "valor_esperado",
-                             "valor_pago", "data_pagamento", "observacoes"]
+                             "valor_pago", "mudanca_faixa", "data_pagamento", "observacoes"]
                         ].rename(columns={
                             "titular_nome": "Titular",
                             "status_pagamento": "Status",
                             "valor_esperado": "Esperado (R$)",
                             "valor_pago": "Pago (R$)",
+                            "mudanca_faixa": "Mudança de Faixa",
                             "data_pagamento": "Data Pag.",
                             "observacoes": "Obs",
                         })
@@ -3367,6 +3421,18 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         )
                     else:
                         st.info(f"Nenhum registro para {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}.")
+
+                    if _migs_por_titular:
+                        with st.expander(f"⚠️ Grupos Familiares com Mudança de Faixa Etária ({len(_migs_por_titular)} grupos identificados)", expanded=False):
+                            for _tn, _m_list in _migs_por_titular.items():
+                                st.markdown(f"**Grupo Familiar de {_tn}:**")
+                                for _m in _m_list:
+                                    st.markdown(
+                                        f"- **{_m['beneficiario_nome']}** ({_m.get('grau_parentesco', 'Integrante')}): completou **{_m.get('idade_atual', '-')} anos** | "
+                                        f"Faixa Anterior: *{_m.get('faixa_anterior', '-')}* ({formatar_moeda(_m.get('valor_faixa_anterior', 0.0))}) ➔ "
+                                        f"Nova Faixa: **{_m.get('faixa_calculada', '-')}** ({formatar_moeda(_m.get('valor_faixa_atual', 0.0))}) | "
+                                        f"Plano: {_m.get('tipo_plano_nome', 'Coletivo')}"
+                                    )
                 except Exception as _e_lista:
                     st.error(f"Erro ao carregar pagamentos: {_e_lista}")
         # ── ABA: HISTÓRICO GERAL ───────────────────────────────────────────────
