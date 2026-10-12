@@ -1,16 +1,10 @@
 {
   "emails": [
     {
-      "titular_nome": "Fabio de Paula Guerra",
-      "email": "guerra.fpg@dpf.gov.br",
-      "descricao": "",
-      "ordem": 0
-    },
-    {
-      "titular_nome": "Fabio de Paula Guerra",
-      "email": "fabioguerra77@globo.com",
+      "titular_nome": "Francisco Sandin Martins",
+      "email": "sandinff@terra.com.br",
       "descricao": "pessoal",
-      "ordem": 1
+      "ordem": 0
     }
   ],
   "pagamentos": []
