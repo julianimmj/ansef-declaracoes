@@ -115,5 +115,15 @@
       "ordem": 0
     }
   ],
-  "pagamentos": []
+  "pagamentos": [
+    {
+      "titular_nome": "Admir Tozo",
+      "mes_ano": "2026-10",
+      "status_pagamento": "PAGO",
+      "valor_esperado": 2094.0,
+      "valor_pago": 2094.0,
+      "data_pagamento": "10/10/2026",
+      "observacoes": ""
+    }
+  ]
 }
