@@ -1,1 +1,11 @@
-{"emails": [], "pagamentos": []}
+{
+  "emails": [
+    {
+      "titular_nome": "Admir Tozo",
+      "email": "admir@tozo.adv.br",
+      "descricao": "",
+      "ordem": 0
+    }
+  ],
+  "pagamentos": []
+}
