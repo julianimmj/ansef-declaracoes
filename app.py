@@ -3307,10 +3307,17 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             key="pag_reg_status",
                         )
                     with _col_st2:
+                        _data_padrao_pag = f"10/{_mes_pag:02d}/{_ano_pag}"
+                        if st.session_state.get("_ultimo_mes_ano_data") != (_mes_pag, _ano_pag):
+                            st.session_state["pag_reg_data"] = _data_padrao_pag
+                            st.session_state["_ultimo_mes_ano_data"] = (_mes_pag, _ano_pag)
+
                         _pag_data = st.text_input(
                             "Data do Pagamento:",
+                            value=st.session_state.get("pag_reg_data", _data_padrao_pag),
                             placeholder="DD/MM/AAAA (ex: 10/10/2026)",
                             key="pag_reg_data",
+                            help="Preenchida por padrão no dia 10 do mês e ano selecionados. Altere se necessário.",
                         )
 
                     # ── BLOCO 2: VALORES FINANCEIROS (Simetria perfeita de inputs) ──
@@ -3374,6 +3381,8 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             observacoes=_pag_obs,
                         )
                         if _ok_pag:
+                            st.session_state["pag_reg_data"] = _data_padrao_pag
+                            st.session_state["pag_reg_vPago"] = 0.0
                             st.success(_msg_pag)
                             st.rerun()
                         else:
