@@ -2663,17 +2663,53 @@ def importar_backup_anuais_json(conteudo_json: str) -> tuple[bool, str, int]:
 
 # ─── BACKUP/RESTORE DE E-MAILS E PAGAMENTOS (persistência entre deploys) ────────
 
-def _salvar_backup_emails_pagamentos(conn, sync_git: bool = True) -> None:
+def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_arquivo: bool = True) -> None:
     """Serializa titular_emails e historico_pagamentos em JSON versionado no Git."""
     try:
-        emails = [dict(r) for r in conn.execute(
-            "SELECT titular_nome, email, descricao, ordem FROM titular_emails ORDER BY titular_nome, ordem, id"
-        ).fetchall()]
-        pagamentos = [dict(r) for r in conn.execute(
-            "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
-        ).fetchall()]
-        payload = {"emails": emails, "pagamentos": pagamentos}
         backup_path = _obter_emails_pag_backup_path()
+        existentes_emails = {}
+        existentes_pags = {}
+
+        if mesclar_arquivo and os.path.exists(backup_path):
+            try:
+                with open(backup_path, "r", encoding="utf-8") as f:
+                    old_payload = json.load(f)
+                for em in old_payload.get("emails", []):
+                    k = (em.get("titular_nome", "").strip().lower(), em.get("email", "").strip().lower())
+                    if k[0] and k[1]:
+                        existentes_emails[k] = em
+                for pg in old_payload.get("pagamentos", []):
+                    k = (pg.get("titular_nome", "").strip().lower(), pg.get("mes_ano", "").strip())
+                    if k[0] and k[1]:
+                        existentes_pags[k] = pg
+            except Exception as e:
+                logger.warning(f"Aviso ao ler backup anterior de emails/pagamentos: {e}")
+
+        def _exec(c):
+            for r in c.execute(
+                "SELECT titular_nome, email, descricao, ordem FROM titular_emails ORDER BY titular_nome, ordem, id"
+            ).fetchall():
+                d = dict(r)
+                k = (d.get("titular_nome", "").strip().lower(), d.get("email", "").strip().lower())
+                existentes_emails[k] = d
+
+            for r in c.execute(
+                "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
+            ).fetchall():
+                d = dict(r)
+                k = (d.get("titular_nome", "").strip().lower(), d.get("mes_ano", "").strip())
+                existentes_pags[k] = d
+
+        if conn:
+            _exec(conn)
+        else:
+            with get_connection() as c:
+                _exec(c)
+
+        payload = {
+            "emails": list(existentes_emails.values()),
+            "pagamentos": list(existentes_pags.values()),
+        }
         os.makedirs(os.path.dirname(os.path.abspath(backup_path)), exist_ok=True)
         with open(backup_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -2732,7 +2768,7 @@ def _carregar_backup_emails_pagamentos(conn) -> None:
 
 
 def _garantir_tabelas_emails_pagamentos(conn) -> None:
-    """Garante que as tabelas de e-mails e histórico de pagamentos existam."""
+    """Garante que as tabelas de e-mails e histórico de pagamentos existam e estejam sincronizadas com o backup."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS titular_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2764,6 +2800,13 @@ def _garantir_tabelas_emails_pagamentos(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_historico_mes_ano
             ON historico_pagamentos (mes_ano);
     """)
+    # Auto-recupera registros do JSON se a tabela estiver vazia
+    try:
+        qtd = conn.execute("SELECT COUNT(*) FROM titular_emails").fetchone()[0]
+        if qtd == 0:
+            _carregar_backup_emails_pagamentos(conn)
+    except Exception:
+        pass
 
 
 def listar_emails_titular(titular_nome: str) -> list[dict]:
@@ -2826,7 +2869,7 @@ def remover_email_titular(email_id: int) -> tuple[bool, str]:
         if not row:
             return False, "E-mail não encontrado."
         conn.execute("DELETE FROM titular_emails WHERE id = ?", (email_id,))
-        _salvar_backup_emails_pagamentos(conn)
+        _salvar_backup_emails_pagamentos(conn, sync_git=True, mesclar_arquivo=False)
         return True, f"E-mail '{row['email']}' removido com sucesso."
 
 
@@ -2851,6 +2894,7 @@ def atualizar_email_titular(email_id: int, novo_email: str = "", nova_descricao:
                 "UPDATE titular_emails SET email = ?, descricao = ? WHERE id = ?",
                 (email_final, desc_final, email_id)
             )
+            _salvar_backup_emails_pagamentos(conn, sync_git=True, mesclar_arquivo=False)
             return True, f"E-mail atualizado para '{email_final}'."
         except sqlite3.IntegrityError:
             return False, f"O e-mail '{email_final}' já está cadastrado para este titular."
