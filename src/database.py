@@ -50,6 +50,13 @@ DECLARACOES_ANUAIS_BACKUP_PATH = os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or o
 def _obter_anuais_backup_path() -> str:
     return os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or DECLARACOES_ANUAIS_BACKUP_PATH
 
+EMAILS_PAGAMENTOS_BACKUP_PATH = os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "emails_pagamentos_backup.json"
+)
+
+def _obter_emails_pag_backup_path() -> str:
+    return os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or EMAILS_PAGAMENTOS_BACKUP_PATH
+
 TABELA_FAIXAS_PADRAO = [
     ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
     ("19 – 23 anos", 19, 23, 412.00, 295.00, 2),
@@ -555,8 +562,9 @@ def inicializar_banco():
         # Tabelas de e-mails e histórico de pagamentos (estrutura isolada)
         try:
             _garantir_tabelas_emails_pagamentos(conn)
+            _carregar_backup_emails_pagamentos(conn)
         except Exception as e:
-            logger.warning(f"Inicialização de e-mails/pagamentos ignorada: {e}")
+            logger.warning(f"Inicializacao de e-mails/pagamentos ignorada: {e}")
 
         conn.commit()
     except Exception:
@@ -2651,6 +2659,78 @@ def importar_backup_anuais_json(conteudo_json: str) -> tuple[bool, str, int]:
 # ── MÚLTIPLOS E-MAILS POR TITULAR ───────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+
+# ─── BACKUP/RESTORE DE E-MAILS E PAGAMENTOS (persistência entre deploys) ────────
+
+def _salvar_backup_emails_pagamentos(conn, sync_git: bool = True) -> None:
+    """Serializa titular_emails e historico_pagamentos em JSON versionado no Git."""
+    try:
+        emails = [dict(r) for r in conn.execute(
+            "SELECT titular_nome, email, descricao, ordem FROM titular_emails ORDER BY titular_nome, ordem, id"
+        ).fetchall()]
+        pagamentos = [dict(r) for r in conn.execute(
+            "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
+        ).fetchall()]
+        payload = {"emails": emails, "pagamentos": pagamentos}
+        backup_path = _obter_emails_pag_backup_path()
+        os.makedirs(os.path.dirname(os.path.abspath(backup_path)), exist_ok=True)
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        if sync_git:
+            _git_sync_background("data/emails_pagamentos_backup.json")
+    except Exception as e:
+        logger.error(f"Erro ao salvar backup de emails/pagamentos: {e}")
+
+
+def _carregar_backup_emails_pagamentos(conn) -> None:
+    """Restaura titular_emails e historico_pagamentos a partir do JSON de backup."""
+    backup_path = _obter_emails_pag_backup_path()
+    if not os.path.exists(backup_path):
+        return
+    try:
+        with open(backup_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        for item in payload.get("emails", []):
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO titular_emails (titular_nome, email, descricao, ordem)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    item.get("titular_nome", ""),
+                    item.get("email", ""),
+                    item.get("descricao", ""),
+                    item.get("ordem", 0),
+                ))
+            except Exception:
+                pass
+
+        for item in payload.get("pagamentos", []):
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO historico_pagamentos
+                        (titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, data_pagamento, observacoes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item.get("titular_nome", ""),
+                    item.get("mes_ano", ""),
+                    item.get("status_pagamento", "PENDENTE"),
+                    item.get("valor_esperado", 0.0),
+                    item.get("valor_pago", 0.0),
+                    item.get("data_pagamento", ""),
+                    item.get("observacoes", ""),
+                ))
+            except Exception:
+                pass
+
+        qtd_e = len(payload.get("emails", []))
+        qtd_p = len(payload.get("pagamentos", []))
+        logger.info(f"Backup de emails/pagamentos restaurado: {qtd_e} emails, {qtd_p} pagamentos.")
+    except Exception as e:
+        logger.error(f"Erro ao carregar backup de emails/pagamentos: {e}")
+
+
 def _garantir_tabelas_emails_pagamentos(conn) -> None:
     """Garante que as tabelas de e-mails e histórico de pagamentos existam."""
     conn.executescript("""
@@ -2730,6 +2810,7 @@ def adicionar_email_titular(titular_nome: str, email: str, descricao: str = "") 
                 INSERT INTO titular_emails (titular_nome, email, descricao, ordem)
                 VALUES (?, ?, ?, ?)
             """, (nome_limpo, email_limpo, descricao.strip(), max_ordem + 1))
+            _salvar_backup_emails_pagamentos(conn)
             return True, f"E-mail '{email_limpo}' cadastrado com sucesso para {nome_limpo}."
         except sqlite3.IntegrityError:
             return False, f"O e-mail '{email_limpo}' já está cadastrado para este titular."
@@ -2745,6 +2826,7 @@ def remover_email_titular(email_id: int) -> tuple[bool, str]:
         if not row:
             return False, "E-mail não encontrado."
         conn.execute("DELETE FROM titular_emails WHERE id = ?", (email_id,))
+        _salvar_backup_emails_pagamentos(conn)
         return True, f"E-mail '{row['email']}' removido com sucesso."
 
 
@@ -2835,6 +2917,7 @@ def registrar_pagamento(titular_nome: str, mes: int, ano: int,
             valor_esperado, valor_pago,
             data_pagamento or "", observacoes or "",
             sol_id, agora
+        _salvar_backup_emails_pagamentos(conn)
         ))
     return True, f"Pagamento de {nome_limpo} em {mes:02d}/{ano} registrado como {status_norm}."
 
