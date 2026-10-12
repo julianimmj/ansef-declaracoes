@@ -280,6 +280,17 @@
       "valor_total_esperado": 2094.0,
       "data_pagamento": "10/10/2026",
       "observacoes": ""
+    },
+    {
+      "titular_nome": "Sergio Luiz de Mello Furtado Motta",
+      "mes_ano": "2026-10",
+      "status_pagamento": "PAGO",
+      "valor_esperado": 1855.0,
+      "valor_pago": 1855.0,
+      "valor_uniodonto": 0.0,
+      "valor_total_esperado": 1855.0,
+      "data_pagamento": "10/10/2026",
+      "observacoes": ""
     }
   ]
 }
