@@ -3560,29 +3560,66 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             else:
                                 _p["mudanca_faixa"] = "Não"
 
-                        _df_pag = pd.DataFrame(_lista_pag)[
-                            ["titular_nome", "status_pagamento", "valor_esperado", "uniodonto_info",
-                             "total_consolidado", "valor_pago", "mudanca_faixa", "data_pagamento", "observacoes"]
-                        ].rename(columns={
-                            "titular_nome": "Titular",
-                            "status_pagamento": "Status",
-                            "valor_esperado": "Esperado Saúde (R$)",
-                            "uniodonto_info": "Uniodonto",
-                            "total_consolidado": "Total Esperado (R$)",
-                            "valor_pago": "Pago (R$)",
-                            "mudanca_faixa": "Mudança de Faixa",
-                            "data_pagamento": "Data Pag.",
-                            "observacoes": "Obs",
-                        })
-                        st.dataframe(_df_pag, use_container_width=True, hide_index=True)
-                        _csv_pag = _df_pag.to_csv(index=False).encode("utf-8-sig")
-                        st.download_button(
-                            label="Exportar CSV",
-                            data=_csv_pag,
-                            file_name=f"pagamentos_{_ano_pag}_{_mes_pag:02d}.csv",
-                            mime="text/csv",
-                            key="btn_dl_pag_csv",
-                        )
+                        # ── Filtros de exibição ──
+                        _col_filtro_st, _col_filtro_busca = st.columns([1, 2])
+                        with _col_filtro_st:
+                            _filtro_st_sel = st.selectbox(
+                                "Filtrar por Status:",
+                                ["Todos", "PAGO", "PENDENTE", "INADIMPLENTE", "PARCIAL", "ISENTO"],
+                                index=0,
+                                key="pag_filtro_st_sel",
+                            )
+                        with _col_filtro_busca:
+                            _filtro_busca_tit = st.text_input(
+                                "🔍 Buscar Titular:",
+                                value="",
+                                placeholder="Filtrar por nome do titular...",
+                                key="pag_filtro_busca_tit_input",
+                            )
+
+                        _lista_filtrada = _lista_pag
+                        if _filtro_st_sel != "Todos":
+                            _lista_filtrada = [_x for _x in _lista_filtrada if _x.get("status_pagamento") == _filtro_st_sel]
+                        if _filtro_busca_tit.strip():
+                            _termo = _filtro_busca_tit.strip().lower()
+                            _lista_filtrada = [_x for _x in _lista_filtrada if _termo in _x.get("titular_nome", "").lower()]
+
+                        if _lista_filtrada:
+                            _df_pag = pd.DataFrame(_lista_filtrada)[
+                                ["titular_nome", "status_pagamento", "valor_esperado", "uniodonto_info",
+                                 "total_consolidado", "valor_pago", "mudanca_faixa", "data_pagamento", "observacoes"]
+                            ].rename(columns={
+                                "titular_nome": "Titular",
+                                "status_pagamento": "Status",
+                                "valor_esperado": "Esperado Saúde (R$)",
+                                "uniodonto_info": "Uniodonto",
+                                "total_consolidado": "Total Esperado (R$)",
+                                "valor_pago": "Pago (R$)",
+                                "mudanca_faixa": "Mudança de Faixa",
+                                "data_pagamento": "Data Pag.",
+                                "observacoes": "Obs",
+                            })
+                            st.caption(f"Exibindo **{len(_lista_filtrada)}** de **{len(_lista_pag)}** titulares.")
+                            st.dataframe(
+                                _df_pag,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Esperado Saúde (R$)": st.column_config.NumberColumn("Esperado Saúde (R$)", format="R$ %.2f"),
+                                    "Total Esperado (R$)": st.column_config.NumberColumn("Total Esperado (R$)", format="R$ %.2f"),
+                                    "Pago (R$)": st.column_config.NumberColumn("Pago (R$)", format="R$ %.2f"),
+                                }
+                            )
+                            _csv_pag = _df_pag.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                label="Exportar CSV (Registros Exibidos)",
+                                data=_csv_pag,
+                                file_name=f"pagamentos_{_ano_pag}_{_mes_pag:02d}.csv",
+                                mime="text/csv",
+                                key="btn_dl_pag_csv",
+                            )
+                        else:
+                            st.info(f"Nenhum titular encontrado com os filtros selecionados.")
                     else:
                         st.info(f"Nenhum registro para {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}.")
 

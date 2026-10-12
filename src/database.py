@@ -2665,8 +2665,12 @@ def importar_backup_anuais_json(conteudo_json: str) -> tuple[bool, str, int]:
 
 # ─── BACKUP/RESTORE DE E-MAILS E PAGAMENTOS (persistência entre deploys) ────────
 
+_ultimo_backup_emails_pagamentos_mtime: float = -1.0
+
+
 def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_arquivo: bool = True) -> None:
     """Serializa titular_emails e historico_pagamentos em JSON versionado no Git."""
+    global _ultimo_backup_emails_pagamentos_mtime
     try:
         backup_path = _obter_emails_pag_backup_path()
         existentes_emails = {}
@@ -2677,11 +2681,11 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
                 with open(backup_path, "r", encoding="utf-8") as f:
                     old_payload = json.load(f)
                 for em in old_payload.get("emails", []):
-                    k = (em.get("titular_nome", "").strip().lower(), em.get("email", "").strip().lower())
+                    k = (padronizar_nome(em.get("titular_nome", "")).strip().lower(), em.get("email", "").strip().lower())
                     if k[0] and k[1]:
                         existentes_emails[k] = em
                 for pg in old_payload.get("pagamentos", []):
-                    k = (pg.get("titular_nome", "").strip().lower(), pg.get("mes_ano", "").strip())
+                    k = (padronizar_nome(pg.get("titular_nome", "")).strip().lower(), pg.get("mes_ano", "").strip())
                     if k[0] and k[1]:
                         existentes_pags[k] = pg
             except Exception as e:
@@ -2692,14 +2696,14 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
                 "SELECT titular_nome, email, descricao, ordem FROM titular_emails ORDER BY titular_nome, ordem, id"
             ).fetchall():
                 d = dict(r)
-                k = (d.get("titular_nome", "").strip().lower(), d.get("email", "").strip().lower())
+                k = (padronizar_nome(d.get("titular_nome", "")).strip().lower(), d.get("email", "").strip().lower())
                 existentes_emails[k] = d
 
             for r in c.execute(
                 "SELECT titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes FROM historico_pagamentos ORDER BY titular_nome, mes_ano"
             ).fetchall():
                 d = dict(r)
-                k = (d.get("titular_nome", "").strip().lower(), d.get("mes_ano", "").strip())
+                k = (padronizar_nome(d.get("titular_nome", "")).strip().lower(), d.get("mes_ano", "").strip())
                 existentes_pags[k] = d
 
         if conn:
@@ -2715,6 +2719,10 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
         os.makedirs(os.path.dirname(os.path.abspath(backup_path)), exist_ok=True)
         with open(backup_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        if os.path.exists(backup_path):
+            _ultimo_backup_emails_pagamentos_mtime = os.path.getmtime(backup_path)
+
         if sync_git:
             _git_sync_background("data/emails_pagamentos_backup.json")
     except Exception as e:
@@ -2722,7 +2730,7 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
 
 
 def _carregar_backup_emails_pagamentos(conn) -> None:
-    """Restaura titular_emails e historico_pagamentos a partir do JSON de backup."""
+    """Restaura titular_emails e historico_pagamentos a partir do JSON de backup garantindo UPSERT."""
     backup_path = _obter_emails_pag_backup_path()
     if not os.path.exists(backup_path):
         return
@@ -2732,47 +2740,71 @@ def _carregar_backup_emails_pagamentos(conn) -> None:
 
         for item in payload.get("emails", []):
             try:
-                conn.execute("""
-                    INSERT OR IGNORE INTO titular_emails (titular_nome, email, descricao, ordem)
-                    VALUES (?, ?, ?, ?)
-                """, (
-                    item.get("titular_nome", ""),
-                    item.get("email", ""),
-                    item.get("descricao", ""),
-                    item.get("ordem", 0),
-                ))
+                t_nome = padronizar_nome(item.get("titular_nome", "")).strip()
+                t_email = item.get("email", "").strip()
+                if t_nome and t_email:
+                    conn.execute("""
+                        INSERT INTO titular_emails (titular_nome, email, descricao, ordem)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(titular_nome, email) DO UPDATE SET
+                            descricao = excluded.descricao,
+                            ordem     = excluded.ordem
+                    """, (
+                        t_nome,
+                        t_email,
+                        item.get("descricao", ""),
+                        item.get("ordem", 0),
+                    ))
             except Exception:
                 pass
 
         for item in payload.get("pagamentos", []):
             try:
-                conn.execute("""
-                    INSERT OR IGNORE INTO historico_pagamentos
-                        (titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    item.get("titular_nome", ""),
-                    item.get("mes_ano", ""),
-                    item.get("status_pagamento", "PENDENTE"),
-                    item.get("valor_esperado", 0.0),
-                    item.get("valor_pago", 0.0),
-                    item.get("valor_uniodonto", 0.0),
-                    item.get("valor_total_esperado", 0.0),
-                    item.get("data_pagamento", ""),
-                    item.get("observacoes", ""),
-                ))
+                t_nome = padronizar_nome(item.get("titular_nome", "")).strip()
+                m_ano = item.get("mes_ano", "").strip()
+                if t_nome and m_ano:
+                    v_esp = float(item.get("valor_esperado", 0.0) or 0.0)
+                    v_unio = float(item.get("valor_uniodonto", 0.0) or 0.0)
+                    v_tot = float(item.get("valor_total_esperado", 0.0) or 0.0)
+                    if v_tot <= 0.0:
+                        v_tot = round(v_esp + v_unio, 2)
+
+                    conn.execute("""
+                        INSERT INTO historico_pagamentos
+                            (titular_nome, mes_ano, status_pagamento, valor_esperado, valor_pago, valor_uniodonto, valor_total_esperado, data_pagamento, observacoes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(titular_nome, mes_ano) DO UPDATE SET
+                            status_pagamento     = excluded.status_pagamento,
+                            valor_esperado       = excluded.valor_esperado,
+                            valor_pago           = excluded.valor_pago,
+                            valor_uniodonto      = excluded.valor_uniodonto,
+                            valor_total_esperado = excluded.valor_total_esperado,
+                            data_pagamento       = excluded.data_pagamento,
+                            observacoes          = excluded.observacoes
+                    """, (
+                        t_nome,
+                        m_ano,
+                        item.get("status_pagamento", "PENDENTE"),
+                        v_esp,
+                        float(item.get("valor_pago", 0.0) or 0.0),
+                        v_unio,
+                        v_tot,
+                        item.get("data_pagamento", ""),
+                        item.get("observacoes", ""),
+                    ))
             except Exception:
                 pass
 
         qtd_e = len(payload.get("emails", []))
         qtd_p = len(payload.get("pagamentos", []))
-        logger.info(f"Backup de emails/pagamentos restaurado: {qtd_e} emails, {qtd_p} pagamentos.")
+        logger.info(f"Backup de emails/pagamentos restaurado com UPSERT: {qtd_e} emails, {qtd_p} pagamentos.")
     except Exception as e:
         logger.error(f"Erro ao carregar backup de emails/pagamentos: {e}")
 
 
 def _garantir_tabelas_emails_pagamentos(conn) -> None:
     """Garante que as tabelas de e-mails e histórico de pagamentos existam e estejam sincronizadas com o backup."""
+    global _ultimo_backup_emails_pagamentos_mtime
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS titular_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2816,13 +2848,17 @@ def _garantir_tabelas_emails_pagamentos(conn) -> None:
     except Exception:
         pass
 
-    # Auto-recupera registros do JSON se a tabela estiver vazia
-    try:
-        qtd = conn.execute("SELECT COUNT(*) FROM titular_emails").fetchone()[0]
-        if qtd == 0:
-            _carregar_backup_emails_pagamentos(conn)
-    except Exception:
-        pass
+    # Auto-sincroniza registros com o JSON de backup
+    backup_path = _obter_emails_pag_backup_path()
+    if os.path.exists(backup_path):
+        try:
+            mtime = os.path.getmtime(backup_path)
+            qtd_p = conn.execute("SELECT COUNT(*) FROM historico_pagamentos").fetchone()[0]
+            if mtime != _ultimo_backup_emails_pagamentos_mtime or qtd_p == 0:
+                _carregar_backup_emails_pagamentos(conn)
+                _ultimo_backup_emails_pagamentos_mtime = mtime
+        except Exception as e:
+            logger.warning(f"Aviso ao sincronizar emails/pagamentos com backup: {e}")
 
 
 def listar_emails_titular(titular_nome: str) -> list[dict]:
@@ -3043,8 +3079,13 @@ def obter_historico_titular(titular_nome: str, ano: int = None) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def listar_historico_mes_ano(mes: int, ano: int) -> list[dict]:
-    """Retorna o status de pagamento de TODOS os titulares em um determinado mês/ano."""
+def listar_historico_mes_ano(mes: int, ano: int, incluir_todos_titulares: bool = True) -> list[dict]:
+    """
+    Retorna o status de pagamento dos titulares em um determinado mês/ano.
+    Se incluir_todos_titulares for True (padrão), garante que todos os associados titulares
+    cadastrados apareçam na tabela (com status PENDENTE e valores calculados caso ainda
+    não possuam lançamento para o período).
+    """
     mes_ano = _mes_ano_str(mes, ano)
     with get_connection() as conn:
         _garantir_tabelas_emails_pagamentos(conn)
@@ -3053,7 +3094,42 @@ def listar_historico_mes_ano(mes: int, ano: int) -> list[dict]:
             WHERE mes_ano = ?
             ORDER BY titular_nome ASC
         """, (mes_ano,)).fetchall()
-        return [dict(r) for r in rows]
+        registros = {padronizar_nome(r["titular_nome"]).strip().lower(): dict(r) for r in rows}
+
+    if not incluir_todos_titulares:
+        return list(registros.values())
+
+    titulares = listar_titulares()
+    resultado = []
+    for t in titulares:
+        nome_orig = t["titular_nome"]
+        chave = padronizar_nome(nome_orig).strip().lower()
+        if chave in registros:
+            reg = dict(registros[chave])
+            reg["titular_nome"] = nome_orig
+            resultado.append(reg)
+        else:
+            grupo = buscar_grupo_familiar(nome_orig)
+            v_esp = round(sum(m.get("valor_vigente", 0.0) for m in grupo), 2)
+            u = obter_uniodonto_titular(nome_orig)
+            v_unio = round(u["valor_total"], 2) if u else 0.0
+            v_tot = round(v_esp + v_unio, 2)
+            resultado.append({
+                "id": None,
+                "titular_nome": nome_orig,
+                "mes_ano": mes_ano,
+                "status_pagamento": "PENDENTE",
+                "valor_esperado": v_esp,
+                "valor_pago": 0.0,
+                "valor_uniodonto": v_unio,
+                "valor_total_esperado": v_tot,
+                "data_pagamento": "-",
+                "observacoes": "Aguardando pagamento / registro",
+                "sol_id": None,
+                "data_atualizacao": "",
+            })
+    resultado.sort(key=lambda x: x["titular_nome"])
+    return resultado
 
 
 def obter_situacao_pagamento_mes(titular_nome: str, mes: int, ano: int) -> dict | None:
