@@ -95,6 +95,20 @@ try:
         obter_pdf_declaracao_anual,
         exportar_backup_anuais_json,
         importar_backup_anuais_json,
+        # E-mails por titular
+        listar_emails_titular,
+        adicionar_email_titular,
+        remover_email_titular,
+        atualizar_email_titular,
+        obter_emails_para_notificacao,
+        # Histórico de pagamentos
+        registrar_pagamento,
+        obter_historico_titular,
+        listar_historico_mes_ano,
+        listar_inadimplentes,
+        listar_parciais,
+        resumo_pagamentos_mes,
+        STATUS_PAGAMENTO_VALIDOS,
     )
     from src.auth import (
         login_associado,
@@ -111,6 +125,9 @@ try:
         notificar_administrador_nova_declaracao_anual,
         verificar_status_smtp,
         enviar_email_teste,
+        notificar_titular_declaracao_aprovada,
+        notificar_inadimplencia_total,
+        notificar_pagamento_parcial,
     )
     from src.pdf_generator import gerar_pdf_declaracao, gerar_pdf_declaracao_anual
     from src.utils import (
@@ -185,6 +202,20 @@ except ImportError:
         obter_pdf_declaracao_anual,
         exportar_backup_anuais_json,
         importar_backup_anuais_json,
+        # E-mails por titular
+        listar_emails_titular,
+        adicionar_email_titular,
+        remover_email_titular,
+        atualizar_email_titular,
+        obter_emails_para_notificacao,
+        # Histórico de pagamentos
+        registrar_pagamento,
+        obter_historico_titular,
+        listar_historico_mes_ano,
+        listar_inadimplentes,
+        listar_parciais,
+        resumo_pagamentos_mes,
+        STATUS_PAGAMENTO_VALIDOS,
     )
     from auth import (
         login_associado,
@@ -201,6 +232,9 @@ except ImportError:
         notificar_administrador_nova_declaracao_anual,
         verificar_status_smtp,
         enviar_email_teste,
+        notificar_titular_declaracao_aprovada,
+        notificar_inadimplencia_total,
+        notificar_pagamento_parcial,
     )
     from pdf_generator import gerar_pdf_declaracao, gerar_pdf_declaracao_anual
     from utils import (
@@ -1890,13 +1924,14 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     ])
                     st.dataframe(df_migs, use_container_width=True, hide_index=True)
 
-        tab_pend, tab_aprovadas, tab_anuais_admin, tab_reajuste, tab_gestao_grupos, tab_uniodonto, tab_relatorio, tab_config_email = st.tabs([
+        tab_pend, tab_aprovadas, tab_anuais_admin, tab_reajuste, tab_gestao_grupos, tab_uniodonto, tab_pagamentos, tab_relatorio, tab_config_email = st.tabs([
             "📋 Fila de Pendentes",
             "📄 Declarações Aprovadas",
             "📅 Declarações Anuais",
             "💰 Tabela de Preços e Reajustes",
             "👥 Gestão de Integrantes & Grupos",
             "🦷 Plano Odontológico (Uniodonto)",
+            "💳 Controle de Pagamentos",
             "📊 Histórico Geral",
             "⚙️ Configuração de E-mail",
         ])
@@ -2054,6 +2089,23 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                         ano_ref=ano_edit,
                                         pdf_bytes=pdf_bytes,
                                     )
+
+                                    # Notifica o titular por e-mail (não bloqueia em caso de falha)
+                                    _emails_tit = obter_emails_para_notificacao(sol["titular_nome"])
+                                    if _emails_tit:
+                                        try:
+                                            notificar_titular_declaracao_aprovada(
+                                                titular_nome=sol["titular_nome"],
+                                                titular_cpf=sol["titular_cpf"],
+                                                mes_referencia=mes_num_adm,
+                                                ano_referencia=ano_edit,
+                                                valor_total=valor_total_adm,
+                                                codigo_validacao=sol.get("codigo_validacao", ""),
+                                                emails_titular=_emails_tit,
+                                                dependentes=deps_editados,
+                                            )
+                                        except Exception:
+                                            pass
 
                                 st.success(
                                     f"✅ Solicitação #{sol['id']} aprovada! "
@@ -2650,10 +2702,11 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 "ou gerencie e exclua integrantes e grupos familiares existentes."
             )
 
-            subtab_cad_titular, subtab_cad_dependente, subtab_gerenciar_grupos = st.tabs([
+            subtab_cad_titular, subtab_cad_dependente, subtab_gerenciar_grupos, subtab_emails = st.tabs([
                 "➕ Novo Titular (Criar Grupo)",
                 "➕ Adicionar Dependente",
                 "📋 Gerenciar / Excluir Grupos e Integrantes",
+                "📧 E-mails dos Titulares",
             ])
 
             # ── SUB-ABA 1: NOVO TITULAR ─────────────────────────────────────
@@ -2863,6 +2916,90 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                         st.caption("(Titular)")
                                 st.markdown("<div style='border-bottom: 1px dashed #eee; margin: 4px 0;'></div>", unsafe_allow_html=True)
 
+            # ── SUB-ABA 4: E-MAILS DOS TITULARES ──────────────────────────────
+            with subtab_emails:
+                st.markdown("##### 📧 Gestão de E-mails dos Titulares")
+                st.info(
+                    "💡 Cada titular pode ter **múltiplos e-mails** cadastrados. "
+                    "Esses e-mails são usados para notificações automáticas "
+                    "(aprovacão de declaração, inadimplência, pagamento parcial). "
+                    "Os dados são salvos permanentemente no banco de dados."
+                )
+
+                titulares_email = listar_titulares()
+                if not titulares_email:
+                    st.warning("Nenhum titular cadastrado.")
+                else:
+                    nomes_email = [t["titular_nome"] for t in titulares_email]
+                    tit_sel_email = st.selectbox(
+                        "👤 Selecione o Titular:",
+                        options=nomes_email,
+                        key="email_titular_sel",
+                    )
+
+                    if tit_sel_email:
+                        emails_atuais = listar_emails_titular(tit_sel_email)
+
+                        # Exibir e-mails já cadastrados
+                        if emails_atuais:
+                            st.markdown(f"**E-mails cadastrados para {tit_sel_email}:**")
+                            for em in emails_atuais:
+                                c_e1, c_e2, c_e3, c_e4 = st.columns([3, 2, 1.5, 1])
+                                with c_e1:
+                                    st.markdown(f"📧 `{em['email']}`")
+                                with c_e2:
+                                    st.caption(em.get("descricao") or "—")
+                                with c_e3:
+                                    st.caption(f"Cadastrado em: {str(em.get('data_cadastro',''))[:10]}")
+                                with c_e4:
+                                    if st.button(
+                                        "🗑️ Remover",
+                                        key=f"rem_email_{em['id']}",
+                                        use_container_width=True,
+                                    ):
+                                        ok_rem, msg_rem = remover_email_titular(em["id"])
+                                        if ok_rem:
+                                            st.success(msg_rem)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg_rem)
+                        else:
+                            st.info(f"Nenhum e-mail cadastrado para **{tit_sel_email}** ainda.")
+
+                        st.markdown("---")
+                        st.markdown("**Adicionar novo e-mail:**")
+                        c_ne1, c_ne2, c_ne3 = st.columns([3, 3, 1.5])
+                        with c_ne1:
+                            novo_email_input = st.text_input(
+                                "E-mail *",
+                                placeholder="exemplo@email.com",
+                                key="novo_email_input",
+                            )
+                        with c_ne2:
+                            nova_desc_input = st.text_input(
+                                "Descrição (opcional)",
+                                placeholder="Ex: E-mail pessoal, trabalho...",
+                                key="novo_email_desc",
+                            )
+                        with c_ne3:
+                            st.markdown("&nbsp;", unsafe_allow_html=True)
+                            if st.button(
+                                "Adicionar E-mail",
+                                type="primary",
+                                use_container_width=True,
+                                key="btn_add_email",
+                            ):
+                                ok_add, msg_add = adicionar_email_titular(
+                                    titular_nome=tit_sel_email,
+                                    email=novo_email_input,
+                                    descricao=nova_desc_input,
+                                )
+                                if ok_add:
+                                    st.success(msg_add)
+                                    st.rerun()
+                                else:
+                                    st.error(msg_add)
+
         # ── ABA: PLANO ODONTOLÓGICO (UNIODONTO) ──────────────────────────────
         with tab_uniodonto:
             st.markdown("#### 🦷 Gestão do Plano Odontológico (Uniodonto Campinas)")
@@ -3015,6 +3152,248 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
 
         # ── ABA 5: HISTÓRICO GERAL ──────────────────────────────────────────
+        # ── ABA: CONTROLE DE PAGAMENTOS ──────────────────────────────────────
+        with tab_pagamentos:
+            st.markdown("#### 💳 Controle de Pagamentos Mensais")
+            st.caption(
+                "Registre e consulte o status de pagamento de cada titular por mês/ano. "
+                "Dispare notificações automáticas para inadimplentes e pagamentos parciais."
+            )
+
+            _anos_pag = list(range(datetime.now().year - 2, datetime.now().year + 2))
+            _col_pag1, _col_pag2 = st.columns(2)
+            with _col_pag1:
+                _mes_pag = st.selectbox(
+                    "Mês:",
+                    options=list(range(1, 13)),
+                    index=datetime.now().month - 1,
+                    format_func=lambda m: mes_por_extenso(m).capitalize(),
+                    key="pag_mes_sel",
+                )
+            with _col_pag2:
+                _ano_pag = st.selectbox(
+                    "Ano:",
+                    options=_anos_pag,
+                    index=_anos_pag.index(datetime.now().year),
+                    key="pag_ano_sel",
+                )
+
+            # Resumo do mês selecionado
+            try:
+                _resumo = resumo_pagamentos_mes(_mes_pag, _ano_pag)
+                _cont = _resumo.get("contagem", {})
+                _c1, _c2, _c3, _c4, _c5 = st.columns(5)
+                _c1.metric("✅ Pagos", _cont.get("PAGO", 0))
+                _c2.metric("⏳ Pendentes", _cont.get("PENDENTE", 0))
+                _c3.metric("⚠️ Parciais", _cont.get("PARCIAL", 0))
+                _c4.metric("🔴 Inadimplentes", _cont.get("INADIMPLENTE", 0))
+                _c5.metric("🟢 Isentos", _cont.get("ISENTO", 0))
+            except Exception as _e_res:
+                st.caption(f"Resumo indisponível: {_e_res}")
+
+            _subtab_reg, _subtab_lista, _subtab_notif = st.tabs([
+                "📝 Registrar / Atualizar Status",
+                "📊 Consultar Status do Mês",
+                "📨 Enviar Notificações",
+            ])
+
+            # SUB-ABA: REGISTRAR STATUS
+            with _subtab_reg:
+                st.markdown("##### 📝 Registrar Status de Pagamento")
+                _tits_pag = listar_titulares()
+                if not _tits_pag:
+                    st.warning("Nenhum titular cadastrado.")
+                else:
+                    _nomes_pag = [t["titular_nome"] for t in _tits_pag]
+                    _pag_tit = st.selectbox("Titular:", _nomes_pag, key="pag_reg_tit")
+                    _pag_status = st.selectbox(
+                        "Status do Pagamento:",
+                        options=list(STATUS_PAGAMENTO_VALIDOS),
+                        key="pag_reg_status",
+                    )
+                    _c_pag_v1, _c_pag_v2 = st.columns(2)
+                    with _c_pag_v1:
+                        _pag_vEsperado = st.number_input(
+                            "Valor Esperado (R$):", min_value=0.0, value=0.0,
+                            step=0.01, format="%.2f", key="pag_reg_vEsp"
+                        )
+                    with _c_pag_v2:
+                        _pag_vPago = st.number_input(
+                            "Valor Pago (R$):", min_value=0.0, value=0.0,
+                            step=0.01, format="%.2f", key="pag_reg_vPago"
+                        )
+                    _pag_data = st.text_input(
+                        "Data do Pagamento (DD/MM/AAAA):", placeholder="Ex: 10/10/2025", key="pag_reg_data"
+                    )
+                    _pag_obs = st.text_area(
+                        "Observações:", placeholder="Opcional...", key="pag_reg_obs", height=80
+                    )
+
+                    if st.button(
+                        "Salvar Status de Pagamento", type="primary",
+                        use_container_width=True, key="btn_salvar_pag"
+                    ):
+                        _ok_pag, _msg_pag = registrar_pagamento(
+                            titular_nome=_pag_tit,
+                            mes=_mes_pag,
+                            ano=_ano_pag,
+                            status=_pag_status,
+                            valor_esperado=_pag_vEsperado,
+                            valor_pago=_pag_vPago,
+                            data_pagamento=_pag_data,
+                            observacoes=_pag_obs,
+                        )
+                        if _ok_pag:
+                            st.success(_msg_pag)
+                            st.rerun()
+                        else:
+                            st.error(_msg_pag)
+
+            # SUB-ABA: CONSULTAR STATUS
+            with _subtab_lista:
+                st.markdown(f"##### 📊 Status de Pagamentos — {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}")
+                try:
+                    _lista_pag = listar_historico_mes_ano(_mes_pag, _ano_pag)
+                    if _lista_pag:
+                        _df_pag = pd.DataFrame(_lista_pag)[
+                            ["titular_nome", "status_pagamento", "valor_esperado",
+                             "valor_pago", "data_pagamento", "observacoes"]
+                        ].rename(columns={
+                            "titular_nome": "Titular",
+                            "status_pagamento": "Status",
+                            "valor_esperado": "Esperado (R$)",
+                            "valor_pago": "Pago (R$)",
+                            "data_pagamento": "Data Pag.",
+                            "observacoes": "Obs",
+                        })
+                        st.dataframe(_df_pag, use_container_width=True, hide_index=True)
+
+                        # Download CSV
+                        _csv_pag = _df_pag.to_csv(index=False).encode("utf-8-sig")
+                        st.download_button(
+                            label="📅 Exportar CSV",
+                            data=_csv_pag,
+                            file_name=f"pagamentos_{_ano_pag}_{_mes_pag:02d}.csv",
+                            mime="text/csv",
+                            key="btn_dl_pag_csv",
+                        )
+                    else:
+                        st.info(f"Nenhum registro de pagamento para {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}.")
+                except Exception as _e_lista:
+                    st.error(f"Erro ao carregar lista de pagamentos: {_e_lista}")
+
+            # SUB-ABA: NOTIFICAÇÕES
+            with _subtab_notif:
+                st.markdown("##### 📨 Enviar Notificações aos Titulares")
+                st.info(
+                    "Selecione o tipo de notificação e o(s) titular(es) que deseja notificar. "
+                    "O sistema utilizará os e-mails cadastrados em 📧 **E-mails dos Titulares**."
+                )
+
+                _tipo_notif = st.radio(
+                    "Tipo de Notificação:",
+                    options=[
+                        "🔴 Inadimplência Total (sem pagamento)",
+                        "⚠️ Pagamento Parcial (valor abaixo do esperado)",
+                    ],
+                    key="tipo_notif_sel",
+                )
+
+                # Lista de inadimplentes/parciais do mês
+                if "Inadimpl" in _tipo_notif:
+                    try:
+                        _candidatos = listar_inadimplentes(_mes_pag, _ano_pag)
+                    except Exception as _e_cand:
+                        _candidatos = []
+                        st.warning(f"Erro ao carregar inadimplentes: {_e_cand}")
+                    _tipo_acao = "inadimplencia"
+                else:
+                    try:
+                        _candidatos = listar_parciais(_mes_pag, _ano_pag)
+                    except Exception as _e_cand:
+                        _candidatos = []
+                        st.warning(f"Erro ao carregar pagamentos parciais: {_e_cand}")
+                    _tipo_acao = "parcial"
+
+                if not _candidatos:
+                    st.success(f"✅ Nenhum titular com este status em {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}.")
+                else:
+                    st.markdown(f"**{len(_candidatos)} titular(es) com este status:**")
+                    _nomes_candidatos = [c["titular_nome"] for c in _candidatos]
+                    _selecionados_notif = st.multiselect(
+                        "Selecione os titulares para notificar:",
+                        options=_nomes_candidatos,
+                        default=_nomes_candidatos,
+                        key="multisel_notif",
+                    )
+
+                    _obs_notif = st.text_area(
+                        "Mensagem/Observação adicional (opcional):",
+                        key="obs_notif",
+                        height=80,
+                    )
+
+                    if st.button(
+                        f"Enviar Notificação para {len(_selecionados_notif)} titular(es)",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_enviar_notif_pag",
+                        disabled=not _selecionados_notif,
+                    ):
+                        _resultados_notif = []
+                        for _nome_n in _selecionados_notif:
+                            _cand_data = next(
+                                (c for c in _candidatos if c["titular_nome"] == _nome_n), {}
+                            )
+                            _emails_n = obter_emails_para_notificacao(_nome_n)
+                            if not _emails_n:
+                                _resultados_notif.append({
+                                    "Titular": _nome_n,
+                                    "Status": "⚠️ Sem e-mail",
+                                    "Detalhe": "Nenhum e-mail cadastrado para este titular."
+                                })
+                                continue
+
+                            try:
+                                if _tipo_acao == "inadimplencia":
+                                    _ok_n, _msg_n = notificar_inadimplencia_total(
+                                        titular_nome=_nome_n,
+                                        mes_referencia=_mes_pag,
+                                        ano_referencia=_ano_pag,
+                                        valor_esperado=_cand_data.get("valor_esperado", 0.0),
+                                        emails_titular=_emails_n,
+                                        observacoes=_obs_notif,
+                                    )
+                                else:
+                                    _ok_n, _msg_n = notificar_pagamento_parcial(
+                                        titular_nome=_nome_n,
+                                        mes_referencia=_mes_pag,
+                                        ano_referencia=_ano_pag,
+                                        valor_esperado=_cand_data.get("valor_esperado", 0.0),
+                                        valor_pago=_cand_data.get("valor_pago", 0.0),
+                                        emails_titular=_emails_n,
+                                        observacoes=_obs_notif,
+                                    )
+                                _resultados_notif.append({
+                                    "Titular": _nome_n,
+                                    "Status": "✅ Enviado" if _ok_n else "❌ Falha",
+                                    "Detalhe": _msg_n,
+                                })
+                            except Exception as _ex_n:
+                                _resultados_notif.append({
+                                    "Titular": _nome_n,
+                                    "Status": "❌ Erro",
+                                    "Detalhe": str(_ex_n),
+                                })
+
+                        if _resultados_notif:
+                            st.dataframe(
+                                pd.DataFrame(_resultados_notif),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+        # ── ABA: HISTÓRICO GERAL ───────────────────────────────────────────────
         with tab_relatorio:
             st.markdown("#### 📊 Histórico Geral de Declarações")
 

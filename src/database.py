@@ -431,6 +431,41 @@ def inicializar_banco():
             );
         """)
 
+        # ── Tabela de e-mails por titular (múltiplos contatos) ─────────────────
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS titular_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titular_nome TEXT NOT NULL,
+                email TEXT NOT NULL,
+                descricao TEXT DEFAULT '',
+                ordem INTEGER DEFAULT 0,
+                data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(titular_nome, email)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_titular_emails_nome
+                ON titular_emails (titular_nome);
+
+            CREATE TABLE IF NOT EXISTS historico_pagamentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titular_nome TEXT NOT NULL,
+                mes_ano TEXT NOT NULL,
+                status_pagamento TEXT NOT NULL DEFAULT 'PENDENTE',
+                valor_esperado REAL DEFAULT 0.0,
+                valor_pago REAL DEFAULT 0.0,
+                data_pagamento TEXT,
+                observacoes TEXT DEFAULT '',
+                sol_id INTEGER,
+                data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(titular_nome, mes_ano)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_historico_titular
+                ON historico_pagamentos (titular_nome);
+            CREATE INDEX IF NOT EXISTS idx_historico_mes_ano
+                ON historico_pagamentos (mes_ano);
+        """)
+
         # Inicializa a tabela de faixas etárias caso vazia
         count_faixas = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
         if count_faixas == 0:
@@ -516,6 +551,12 @@ def inicializar_banco():
             _inicializar_declaracoes_anuais(conn)
         except Exception as e:
             logger.warning(f"Inicialização das declarações anuais ignorada: {e}")
+
+        # Tabelas de e-mails e histórico de pagamentos (estrutura isolada)
+        try:
+            _garantir_tabelas_emails_pagamentos(conn)
+        except Exception as e:
+            logger.warning(f"Inicialização de e-mails/pagamentos ignorada: {e}")
 
         conn.commit()
     except Exception:
@@ -2606,5 +2647,369 @@ def importar_backup_anuais_json(conteudo_json: str) -> tuple[bool, str, int]:
         return False, f"Erro ao processar arquivo: {e}", 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── MÚLTIPLOS E-MAILS POR TITULAR ───────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
 
+def _garantir_tabelas_emails_pagamentos(conn) -> None:
+    """Garante que as tabelas de e-mails e histórico de pagamentos existam."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS titular_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titular_nome TEXT NOT NULL,
+            email TEXT NOT NULL,
+            descricao TEXT DEFAULT '',
+            ordem INTEGER DEFAULT 0,
+            data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(titular_nome, email)
+        );
+        CREATE INDEX IF NOT EXISTS idx_titular_emails_nome
+            ON titular_emails (titular_nome);
+
+        CREATE TABLE IF NOT EXISTS historico_pagamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titular_nome TEXT NOT NULL,
+            mes_ano TEXT NOT NULL,
+            status_pagamento TEXT NOT NULL DEFAULT 'PENDENTE',
+            valor_esperado REAL DEFAULT 0.0,
+            valor_pago REAL DEFAULT 0.0,
+            data_pagamento TEXT,
+            observacoes TEXT DEFAULT '',
+            sol_id INTEGER,
+            data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(titular_nome, mes_ano)
+        );
+        CREATE INDEX IF NOT EXISTS idx_historico_titular
+            ON historico_pagamentos (titular_nome);
+        CREATE INDEX IF NOT EXISTS idx_historico_mes_ano
+            ON historico_pagamentos (mes_ano);
+    """)
+
+
+def listar_emails_titular(titular_nome: str) -> list[dict]:
+    """Retorna todos os e-mails cadastrados para um titular, ordenados por ordem."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        rows = conn.execute("""
+            SELECT id, titular_nome, email, descricao, ordem, data_cadastro
+            FROM titular_emails
+            WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))
+            ORDER BY ordem ASC, id ASC
+        """, (nome_limpo,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def adicionar_email_titular(titular_nome: str, email: str, descricao: str = "") -> tuple[bool, str]:
+    """Adiciona um novo e-mail a um titular. Retorna (sucesso, mensagem)."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    email_limpo = email.strip().lower()
+    if not nome_limpo:
+        return False, "Nome do titular é obrigatório."
+    if not email_limpo or "@" not in email_limpo:
+        return False, "E-mail inválido."
+
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        # Verifica se titular existe
+        existe_tit = conn.execute(
+            "SELECT 1 FROM membros WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?)) AND UPPER(tipo) = 'TITULAR' LIMIT 1",
+            (nome_limpo,)
+        ).fetchone()
+        if not existe_tit:
+            return False, f"Titular '{nome_limpo}' não encontrado no cadastro."
+
+        # Define ordem (próximo disponível)
+        max_ordem = conn.execute(
+            "SELECT COALESCE(MAX(ordem), -1) FROM titular_emails WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))",
+            (nome_limpo,)
+        ).fetchone()[0]
+
+        try:
+            conn.execute("""
+                INSERT INTO titular_emails (titular_nome, email, descricao, ordem)
+                VALUES (?, ?, ?, ?)
+            """, (nome_limpo, email_limpo, descricao.strip(), max_ordem + 1))
+            return True, f"E-mail '{email_limpo}' cadastrado com sucesso para {nome_limpo}."
+        except sqlite3.IntegrityError:
+            return False, f"O e-mail '{email_limpo}' já está cadastrado para este titular."
+
+
+def remover_email_titular(email_id: int) -> tuple[bool, str]:
+    """Remove um e-mail pelo ID. Retorna (sucesso, mensagem)."""
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        row = conn.execute(
+            "SELECT email, titular_nome FROM titular_emails WHERE id = ?", (email_id,)
+        ).fetchone()
+        if not row:
+            return False, "E-mail não encontrado."
+        conn.execute("DELETE FROM titular_emails WHERE id = ?", (email_id,))
+        return True, f"E-mail '{row['email']}' removido com sucesso."
+
+
+def atualizar_email_titular(email_id: int, novo_email: str = "", nova_descricao: str = "") -> tuple[bool, str]:
+    """Atualiza e-mail e/ou descrição de um registro. Retorna (sucesso, mensagem)."""
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        row = conn.execute(
+            "SELECT id, email, titular_nome, descricao FROM titular_emails WHERE id = ?", (email_id,)
+        ).fetchone()
+        if not row:
+            return False, "E-mail não encontrado."
+
+        email_final = novo_email.strip().lower() if novo_email.strip() else row["email"]
+        desc_final = nova_descricao.strip() if nova_descricao else row["descricao"]
+
+        if "@" not in email_final:
+            return False, "E-mail inválido."
+
+        try:
+            conn.execute(
+                "UPDATE titular_emails SET email = ?, descricao = ? WHERE id = ?",
+                (email_final, desc_final, email_id)
+            )
+            return True, f"E-mail atualizado para '{email_final}'."
+        except sqlite3.IntegrityError:
+            return False, f"O e-mail '{email_final}' já está cadastrado para este titular."
+
+
+def obter_emails_para_notificacao(titular_nome: str) -> list[str]:
+    """
+    Retorna lista de e-mails válidos de um titular para envio de notificações.
+    Prioridade: e-mails cadastrados na tabela titular_emails.
+    Retorna lista vazia se nenhum e-mail cadastrado.
+    """
+    emails = listar_emails_titular(titular_nome)
+    return [e["email"] for e in emails if e.get("email")]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── HISTÓRICO DE PAGAMENTOS MENSAIS ─────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Status válidos para o histórico de pagamentos
+STATUS_PAGAMENTO_VALIDOS = ("PAGO", "PENDENTE", "PARCIAL", "INADIMPLENTE", "ISENTO")
+
+
+def _mes_ano_str(mes: int, ano: int) -> str:
+    """Formata mês/ano no padrão YYYY-MM para ordenação."""
+    return f"{ano:04d}-{mes:02d}"
+
+
+def registrar_pagamento(titular_nome: str, mes: int, ano: int,
+                        status: str, valor_esperado: float = 0.0,
+                        valor_pago: float = 0.0, data_pagamento: str = "",
+                        observacoes: str = "", sol_id: int = None) -> tuple[bool, str]:
+    """
+    Registra ou atualiza o status de pagamento de um titular para um mês/ano específico.
+    Retorna (sucesso, mensagem).
+    """
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    status_norm = status.upper().strip()
+    if status_norm not in STATUS_PAGAMENTO_VALIDOS:
+        return False, f"Status inválido. Use um de: {', '.join(STATUS_PAGAMENTO_VALIDOS)}."
+    if not (1 <= mes <= 12):
+        return False, "Mês inválido (1-12)."
+
+    mes_ano = _mes_ano_str(mes, ano)
+    agora = datetime.now().isoformat()
+
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        conn.execute("""
+            INSERT INTO historico_pagamentos
+                (titular_nome, mes_ano, status_pagamento, valor_esperado,
+                 valor_pago, data_pagamento, observacoes, sol_id, data_atualizacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(titular_nome, mes_ano) DO UPDATE SET
+                status_pagamento = excluded.status_pagamento,
+                valor_esperado   = COALESCE(NULLIF(excluded.valor_esperado, 0.0), historico_pagamentos.valor_esperado),
+                valor_pago       = excluded.valor_pago,
+                data_pagamento   = excluded.data_pagamento,
+                observacoes      = excluded.observacoes,
+                sol_id           = COALESCE(excluded.sol_id, historico_pagamentos.sol_id),
+                data_atualizacao = excluded.data_atualizacao
+        """, (
+            nome_limpo, mes_ano, status_norm,
+            valor_esperado, valor_pago,
+            data_pagamento or "", observacoes or "",
+            sol_id, agora
+        ))
+    return True, f"Pagamento de {nome_limpo} em {mes:02d}/{ano} registrado como {status_norm}."
+
+
+def registrar_pagamentos_grupo(titular_nome: str, mes: int, ano: int,
+                               status: str, valor_esperado: float = 0.0,
+                               valor_pago: float = 0.0, data_pagamento: str = "",
+                               observacoes: str = "") -> tuple[bool, str, int]:
+    """
+    Registra o status de pagamento para TODOS os membros do grupo familiar de um titular
+    (titular + dependentes) em um mesmo mês/ano. Útil para quitação em lote.
+    Retorna (sucesso, mensagem, quantidade_registros).
+    """
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    grupo = buscar_grupo_familiar(nome_limpo)
+    if not grupo:
+        return False, f"Grupo familiar de '{nome_limpo}' não encontrado.", 0
+
+    count = 0
+    for membro in grupo:
+        ok, _ = registrar_pagamento(
+            titular_nome=nome_limpo,
+            mes=mes, ano=ano,
+            status=status,
+            valor_esperado=valor_esperado,
+            valor_pago=valor_pago,
+            data_pagamento=data_pagamento,
+            observacoes=observacoes,
+        )
+        if ok:
+            count += 1
+    return True, f"{count} registro(s) de pagamento atualizados para o grupo de {nome_limpo}.", count
+
+
+def obter_historico_titular(titular_nome: str, ano: int = None) -> list[dict]:
+    """Retorna o histórico de pagamentos de um titular, opcionalmente filtrado por ano."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        if ano:
+            prefixo = f"{ano:04d}-"
+            rows = conn.execute("""
+                SELECT * FROM historico_pagamentos
+                WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))
+                  AND mes_ano LIKE ?
+                ORDER BY mes_ano DESC
+            """, (nome_limpo, prefixo + "%")).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM historico_pagamentos
+                WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?))
+                ORDER BY mes_ano DESC
+            """, (nome_limpo,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def listar_historico_mes_ano(mes: int, ano: int) -> list[dict]:
+    """Retorna o status de pagamento de TODOS os titulares em um determinado mês/ano."""
+    mes_ano = _mes_ano_str(mes, ano)
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        rows = conn.execute("""
+            SELECT * FROM historico_pagamentos
+            WHERE mes_ano = ?
+            ORDER BY titular_nome ASC
+        """, (mes_ano,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def obter_situacao_pagamento_mes(titular_nome: str, mes: int, ano: int) -> dict | None:
+    """Retorna o registro de pagamento de um titular para um mês/ano específico, ou None."""
+    nome_limpo = padronizar_nome(titular_nome).strip()
+    mes_ano = _mes_ano_str(mes, ano)
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        row = conn.execute("""
+            SELECT * FROM historico_pagamentos
+            WHERE LOWER(TRIM(titular_nome)) = LOWER(TRIM(?)) AND mes_ano = ?
+        """, (nome_limpo, mes_ano)).fetchone()
+        return dict(row) if row else None
+
+
+def listar_inadimplentes(mes: int, ano: int) -> list[dict]:
+    """
+    Retorna titulares com status PENDENTE ou INADIMPLENTE em um mês/ano.
+    Inclui titulares que não possuem nenhum registro para o período (implicitamente inadimplentes).
+    """
+    mes_ano = _mes_ano_str(mes, ano)
+    titulares = listar_titulares()
+    nomes_titulares = {t["titular_nome"] for t in titulares}
+
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        registros = conn.execute("""
+            SELECT titular_nome, status_pagamento, valor_esperado, valor_pago
+            FROM historico_pagamentos
+            WHERE mes_ano = ?
+        """, (mes_ano,)).fetchall()
+
+    pagos = {r["titular_nome"] for r in registros if r["status_pagamento"] in ("PAGO", "ISENTO")}
+    resultado = []
+    for r in registros:
+        if r["status_pagamento"] in ("PENDENTE", "INADIMPLENTE", "PARCIAL"):
+            resultado.append(dict(r) | {"mes_ano": mes_ano})
+
+    # Titulares sem nenhum registro no mês (implicitamente pendentes)
+    nomes_com_registro = {r["titular_nome"] for r in registros}
+    for nome in nomes_titulares:
+        if nome not in nomes_com_registro:
+            resultado.append({
+                "titular_nome": nome,
+                "mes_ano": mes_ano,
+                "status_pagamento": "PENDENTE",
+                "valor_esperado": 0.0,
+                "valor_pago": 0.0,
+                "data_pagamento": "",
+                "observacoes": "Sem registro para o período.",
+                "sol_id": None,
+            })
+    resultado.sort(key=lambda x: x["titular_nome"])
+    return resultado
+
+
+def listar_parciais(mes: int, ano: int) -> list[dict]:
+    """Retorna titulares com status PARCIAL em um mês/ano."""
+    mes_ano = _mes_ano_str(mes, ano)
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        rows = conn.execute("""
+            SELECT * FROM historico_pagamentos
+            WHERE mes_ano = ? AND status_pagamento = 'PARCIAL'
+            ORDER BY titular_nome ASC
+        """, (mes_ano,)).fetchall()
+        return [dict(r) | {"mes_ano": mes_ano} for r in rows]
+
+
+def resumo_pagamentos_mes(mes: int, ano: int) -> dict:
+    """
+    Gera um resumo consolidado dos pagamentos de um mês/ano:
+    - Contagem por status
+    - Total esperado vs. total pago
+    - Listas de inadimplentes e pagantes parciais
+    """
+    mes_ano = _mes_ano_str(mes, ano)
+    titulares = listar_titulares()
+    total_titulares = len(titulares)
+
+    with get_connection() as conn:
+        _garantir_tabelas_emails_pagamentos(conn)
+        rows = conn.execute("""
+            SELECT status_pagamento, COUNT(*) as qtd,
+                   SUM(valor_esperado) as total_esperado,
+                   SUM(valor_pago) as total_pago
+            FROM historico_pagamentos
+            WHERE mes_ano = ?
+            GROUP BY status_pagamento
+        """, (mes_ano,)).fetchall()
+
+    contagem = {s: 0 for s in STATUS_PAGAMENTO_VALIDOS}
+    total_esperado = 0.0
+    total_pago = 0.0
+    for r in rows:
+        contagem[r["status_pagamento"]] = r["qtd"]
+        total_esperado += (r["total_esperado"] or 0.0)
+        total_pago += (r["total_pago"] or 0.0)
+
+    total_sem_registro = total_titulares - sum(contagem.values())
+    contagem["PENDENTE"] = contagem.get("PENDENTE", 0) + total_sem_registro
+
+    return {
+        "mes_ano": mes_ano,
+        "total_titulares": total_titulares,
+        "contagem": contagem,
+        "total_esperado": round(total_esperado, 2),
+        "total_pago": round(total_pago, 2),
+        "diferenca": round(total_pago - total_esperado, 2),
+    }
 

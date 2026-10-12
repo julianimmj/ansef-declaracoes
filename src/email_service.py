@@ -499,3 +499,206 @@ def notificar_administrador_nova_declaracao_anual(
         logger.error(f"Erro inesperado ao montar e-mail da declaração anual: {e}")
         return False, str(e)
 
+
+# ─── NOTIFICAÇÕES AO TITULAR ──────────────────────────────────────────────────
+
+def _enviar_para_lista(config, msg_builder, destinatarios):
+    """Envia um e-mail para uma lista de destinatarios. Retorna (sucesso, mensagem)."""
+    if not destinatarios:
+        return False, "Nenhum e-mail de destinatario informado."
+    sucessos = []
+    erros = []
+    for dest in destinatarios:
+        msg = msg_builder(dest)
+        ok, txt = _conectar_e_enviar(config, msg)
+        if ok:
+            sucessos.append(dest)
+        else:
+            erros.append(f"{dest}: {txt}")
+    if sucessos and not erros:
+        return True, f"E-mail enviado com sucesso para: {', '.join(sucessos)}"
+    elif sucessos:
+        return True, f"Enviado para {', '.join(sucessos)}. Falhas: {'; '.join(erros)}"
+    else:
+        return False, "; ".join(erros)
+
+
+def notificar_titular_declaracao_aprovada(
+    titular_nome,
+    titular_cpf,
+    mes_referencia,
+    ano_referencia,
+    valor_total,
+    codigo_validacao,
+    emails_titular,
+    dependentes=None,
+):
+    """Envia e-mail HTML ao(s) titular(es) notificando aprovacao da declaracao mensal."""
+    config = obter_config_smtp()
+    if not config["user"] or not config["password"]:
+        return False, "Credenciais SMTP nao configuradas."
+    if not emails_titular:
+        return False, "Nenhum e-mail de titular informado."
+    try:
+        mes_ext = mes_por_extenso(mes_referencia).capitalize()
+        agora = datetime.now().strftime("%d/%m/%Y as %H:%M")
+        deps_rows = ""
+        if dependentes:
+            for d in dependentes:
+                deps_rows += (
+                    f"<tr><td style='padding:7px 12px;border:1px solid #e2e8f0;'>{d.get('nome','')}</td>"
+                    f"<td style='padding:7px 12px;border:1px solid #e2e8f0;'>{d.get('parentesco','')}</td>"
+                    f"<td style='padding:7px 12px;border:1px solid #e2e8f0;text-align:right;'>{formatar_moeda(d.get('valor',0))}</td></tr>"
+                )
+            tabela_deps = (
+                "<h3 style='color:#1B3A6B;margin-top:20px;font-size:15px;'>Beneficiarios incluidos:</h3>"
+                "<table style='border-collapse:collapse;width:100%;font-size:13px;'>"
+                "<tr style='background:#1B3A6B;color:white;'>"
+                "<th style='padding:8px 12px;text-align:left;'>Beneficiario</th>"
+                "<th style='padding:8px 12px;text-align:left;'>Parentesco</th>"
+                "<th style='padding:8px 12px;text-align:right;'>Valor (R$)</th></tr>"
+                + deps_rows + "</table>"
+            )
+        else:
+            tabela_deps = ""
+
+        def _build(dest):
+            corpo_html = f"""<html><body style="font-family:Arial,Helvetica,sans-serif;color:#333;max-width:600px;margin:auto;">
+<div style="background:#1B3A6B;padding:20px;text-align:center;"><h1 style="color:white;margin:0;font-size:20px;">ANSEF/CAS - Sistema de Declaracoes</h1></div>
+<div style="padding:22px;background:#f9f9f9;">
+<div style="background:#ecfdf5;border-left:5px solid #10b981;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+<h2 style="color:#065f46;margin:0 0 4px 0;font-size:18px;">Declaracao Aprovada!</h2>
+<p style="color:#065f46;margin:0;font-size:14px;">Sua declaracao de pagamento referente a <strong>{mes_ext}/{ano_referencia}</strong> foi aprovada pela administracao.</p></div>
+<table style="width:100%;font-size:14px;margin:15px 0;">
+<tr><td style="padding:6px 0;font-weight:bold;width:200px;">Titular:</td><td>{titular_nome}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">CPF:</td><td>{formatar_cpf(titular_cpf)}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Mes/Ano:</td><td>{mes_ext} de {ano_referencia}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Valor Declarado:</td><td style="color:#1B3A6B;font-weight:bold;font-size:16px;">{formatar_moeda(valor_total)}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Codigo de Autenticidade:</td><td style="font-family:monospace;color:#0369a1;">{codigo_validacao}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Data da Aprovacao:</td><td>{agora}</td></tr>
+</table>
+{tabela_deps}
+<div style="margin-top:22px;padding:14px;background:#e8f0fe;border-radius:8px;border-left:4px solid #1B3A6B;">
+<p style="margin:0;font-size:14px;">Como baixar sua declaracao: Acesse o portal <a href="https://declara-ansef.streamlit.app/" style="color:#1B3A6B;">declara-ansef.streamlit.app</a>, selecione seu nome, informe a data de nascimento e acesse a aba Historico e Downloads para baixar o PDF.</p></div>
+</div>
+<div style="background:#eee;padding:12px;text-align:center;font-size:12px;color:#777;">ANSEF/CAS - Associacao dos Servidores da Policia Federal em Campinas/SP<br>Este e um e-mail automatico gerado pelo sistema.</div>
+</body></html>"""
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[ANSEF/CAS] Declaracao Aprovada - {mes_ext}/{ano_referencia}"
+            msg["From"] = config["user"]
+            msg["To"] = dest
+            msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+            return msg
+        return _enviar_para_lista(config, _build, emails_titular)
+    except Exception as e:
+        logger.error(f"Erro ao montar e-mail de aprovacao ao titular: {e}")
+        return False, str(e)
+
+
+def notificar_inadimplencia_total(
+    titular_nome,
+    mes_referencia,
+    ano_referencia,
+    valor_esperado,
+    emails_titular,
+    observacoes="",
+):
+    """Envia e-mail de inadimplencia total ao titular. Retorna (sucesso, mensagem)."""
+    config = obter_config_smtp()
+    if not config["user"] or not config["password"]:
+        return False, "Credenciais SMTP nao configuradas."
+    if not emails_titular:
+        return False, "Nenhum e-mail de titular informado."
+    try:
+        mes_ext = mes_por_extenso(mes_referencia).capitalize()
+        agora = datetime.now().strftime("%d/%m/%Y as %H:%M")
+        obs_html = (
+            f"<p style='color:#7f1d1d;font-size:13px;margin-top:10px;'><strong>Observacoes da administracao:</strong> {observacoes}</p>"
+            if observacoes else ""
+        )
+        def _build(dest):
+            corpo_html = f"""<html><body style="font-family:Arial,Helvetica,sans-serif;color:#333;max-width:600px;margin:auto;">
+<div style="background:#1B3A6B;padding:20px;text-align:center;"><h1 style="color:white;margin:0;font-size:20px;">ANSEF/CAS - Sistema de Declaracoes</h1></div>
+<div style="padding:22px;background:#f9f9f9;">
+<div style="background:#fef2f2;border-left:5px solid #ef4444;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+<h2 style="color:#991b1b;margin:0 0 4px 0;font-size:18px;">Aviso de Inadimplencia - {mes_ext}/{ano_referencia}</h2>
+<p style="color:#7f1d1d;margin:0;font-size:14px;">Nao identificamos registro de pagamento referente a <strong>{mes_ext}/{ano_referencia}</strong> para o seu grupo familiar.</p></div>
+<table style="width:100%;font-size:14px;margin:15px 0;">
+<tr><td style="padding:6px 0;font-weight:bold;width:200px;">Titular:</td><td>{titular_nome}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Mes/Ano:</td><td>{mes_ext} de {ano_referencia}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Valor em Aberto:</td><td style="color:#dc2626;font-weight:bold;font-size:16px;">{formatar_moeda(valor_esperado)}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Vencimento:</td><td>Todo dia <strong>10</strong> do mes (ou proximo dia util)</td></tr>
+</table>
+{obs_html}
+<div style="margin-top:20px;padding:14px;background:#fff7ed;border-radius:8px;border-left:4px solid #f97316;">
+<p style="margin:0;font-size:14px;color:#92400e;">Como regularizar: Realize o pagamento via PIX (CNPJ): <code style="background:#fff;padding:2px 6px;border-radius:4px;">19.010.380/0001-73</code> (Banco Itau Ag. 1370, CC 46177-2). Depois, envie sua declaracao pelo portal <a href="https://declara-ansef.streamlit.app/" style="color:#1B3A6B;">declara-ansef.streamlit.app</a>.</p></div>
+<p style="font-size:12px;color:#888;margin-top:20px;">Processado em: {agora}</p>
+</div>
+<div style="background:#eee;padding:12px;text-align:center;font-size:12px;color:#777;">ANSEF/CAS - Associacao dos Servidores da Policia Federal em Campinas/SP<br>Este e um e-mail automatico gerado pelo sistema.</div>
+</body></html>"""
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[ANSEF/CAS] Inadimplencia - {mes_ext}/{ano_referencia} - {titular_nome}"
+            msg["From"] = config["user"]
+            msg["To"] = dest
+            msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+            return msg
+        return _enviar_para_lista(config, _build, emails_titular)
+    except Exception as e:
+        logger.error(f"Erro ao montar e-mail de inadimplencia: {e}")
+        return False, str(e)
+
+
+def notificar_pagamento_parcial(
+    titular_nome,
+    mes_referencia,
+    ano_referencia,
+    valor_esperado,
+    valor_pago,
+    emails_titular,
+    observacoes="",
+):
+    """Envia e-mail de aviso de pagamento parcial ao titular. Retorna (sucesso, mensagem)."""
+    config = obter_config_smtp()
+    if not config["user"] or not config["password"]:
+        return False, "Credenciais SMTP nao configuradas."
+    if not emails_titular:
+        return False, "Nenhum e-mail de titular informado."
+    try:
+        mes_ext = mes_por_extenso(mes_referencia).capitalize()
+        agora = datetime.now().strftime("%d/%m/%Y as %H:%M")
+        diferenca = round(valor_esperado - valor_pago, 2)
+        obs_html = (
+            f"<p style='color:#78350f;font-size:13px;margin-top:10px;'><strong>Observacoes da administracao:</strong> {observacoes}</p>"
+            if observacoes else ""
+        )
+        def _build(dest):
+            corpo_html = f"""<html><body style="font-family:Arial,Helvetica,sans-serif;color:#333;max-width:600px;margin:auto;">
+<div style="background:#1B3A6B;padding:20px;text-align:center;"><h1 style="color:white;margin:0;font-size:20px;">ANSEF/CAS - Sistema de Declaracoes</h1></div>
+<div style="padding:22px;background:#f9f9f9;">
+<div style="background:#fffbeb;border-left:5px solid #f59e0b;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+<h2 style="color:#92400e;margin:0 0 4px 0;font-size:18px;">Pagamento Parcial - {mes_ext}/{ano_referencia}</h2>
+<p style="color:#78350f;margin:0;font-size:14px;">Verificamos que o pagamento registrado esta <strong>abaixo do valor esperado</strong>. Por favor, regularize a diferenca.</p></div>
+<table style="width:100%;font-size:14px;margin:15px 0;">
+<tr><td style="padding:6px 0;font-weight:bold;width:200px;">Titular:</td><td>{titular_nome}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Mes/Ano:</td><td>{mes_ext} de {ano_referencia}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Valor Esperado:</td><td style="font-weight:bold;">{formatar_moeda(valor_esperado)}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Valor Pago:</td><td style="color:#16a34a;font-weight:bold;">{formatar_moeda(valor_pago)}</td></tr>
+<tr><td style="padding:6px 0;font-weight:bold;">Diferenca em Aberto:</td><td style="color:#dc2626;font-weight:bold;font-size:16px;">{formatar_moeda(diferenca)}</td></tr>
+</table>
+{obs_html}
+<div style="margin-top:20px;padding:14px;background:#fff7ed;border-radius:8px;border-left:4px solid #f97316;">
+<p style="margin:0;font-size:14px;color:#92400e;">Como regularizar: Realize o pagamento complementar de <strong>{formatar_moeda(diferenca)}</strong> via PIX (CNPJ): <code style="background:#fff;padding:2px 6px;border-radius:4px;">19.010.380/0001-73</code>. Duvidas? Entre em contato com a administracao da ANSEF/CAS.</p></div>
+<p style="font-size:12px;color:#888;margin-top:20px;">Processado em: {agora}</p>
+</div>
+<div style="background:#eee;padding:12px;text-align:center;font-size:12px;color:#777;">ANSEF/CAS - Associacao dos Servidores da Policia Federal em Campinas/SP<br>Este e um e-mail automatico gerado pelo sistema.</div>
+</body></html>"""
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"[ANSEF/CAS] Pagamento Parcial - {mes_ext}/{ano_referencia} - {titular_nome}"
+            msg["From"] = config["user"]
+            msg["To"] = dest
+            msg.attach(MIMEText(corpo_html, "html", "utf-8"))
+            return msg
+        return _enviar_para_lista(config, _build, emails_titular)
+    except Exception as e:
+        logger.error(f"Erro ao montar e-mail de pagamento parcial: {e}")
+        return False, str(e)
