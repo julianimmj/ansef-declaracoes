@@ -2917,8 +2917,8 @@ def registrar_pagamento(titular_nome: str, mes: int, ano: int,
             valor_esperado, valor_pago,
             data_pagamento or "", observacoes or "",
             sol_id, agora
-        _salvar_backup_emails_pagamentos(conn)
         ))
+        _salvar_backup_emails_pagamentos(conn)
     return True, f"Pagamento de {nome_limpo} em {mes:02d}/{ano} registrado como {status_norm}."
 
 

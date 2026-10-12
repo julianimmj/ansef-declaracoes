@@ -1,4 +1,4 @@
-﻿"""
+"""
 ANSEF/CAS — Sistema de Declarações de Pagamento
 Ponto de entrada da aplicação Streamlit.
 """
