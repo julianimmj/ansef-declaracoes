@@ -376,6 +376,38 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 
+    /* Alinhamento uniforme de formulários executivos */
+    div[data-testid="stForm"] {
+        border-radius: 12px;
+        border: 1px solid #E2E8F0;
+        padding: 18px;
+        background: #FFFFFF;
+    }
+
+    /* Consistência visual e responsividade para dispositivos móveis */
+    @media (max-width: 768px) {
+        .main-header {
+            padding: 6px 0 2px 0;
+        }
+        div[data-testid="stMetric"] {
+            padding: 8px 12px !important;
+            margin-bottom: 6px !important;
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 1.15rem !important;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.78rem !important;
+        }
+        .stButton button {
+            min-height: 42px !important;
+            font-size: 0.92rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] {
+            gap: 12px !important;
+        }
+    }
+
 
     /* ═══════════════════════════════════════════════════════════════
        SIDEBAR & BOTÕES DE NAVEGAÇÃO EXECUTIVOS
@@ -2940,18 +2972,21 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     if tit_sel_email:
                         emails_atuais = listar_emails_titular(tit_sel_email)
 
-                        # Exibir e-mails já cadastrados
+                        # Exibir e-mails já cadastrados em cartões elegantes e responsivos
                         if emails_atuais:
                             st.markdown(f"**E-mails cadastrados para {tit_sel_email}:**")
                             for em in emails_atuais:
-                                c_e1, c_e2, c_e3, c_e4 = st.columns([3, 2, 1.5, 1])
-                                with c_e1:
-                                    st.markdown(f"📧 `{em['email']}`")
-                                with c_e2:
-                                    st.caption(em.get("descricao") or "—")
-                                with c_e3:
-                                    st.caption(f"Cadastrado em: {str(em.get('data_cadastro',''))[:10]}")
-                                with c_e4:
+                                c_em_info, c_em_btn = st.columns([4.5, 1.5])
+                                with c_em_info:
+                                    desc_txt = f" • <span style='color:#64748B;'>{em.get('descricao')}</span>" if em.get("descricao") else ""
+                                    dt_txt = f"<span style='color:#94A3B8; font-size:0.78rem; margin-left:8px;'>({str(em.get('data_cadastro',''))[:10]})</span>"
+                                    st.markdown(
+                                        f"<div style='background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px; padding:8px 12px; margin-bottom:4px;'>"
+                                        f"📧 <strong style='color:#1E293B;'>{em['email']}</strong>{desc_txt}{dt_txt}"
+                                        f"</div>",
+                                        unsafe_allow_html=True
+                                    )
+                                with c_em_btn:
                                     if st.button(
                                         "🗑️ Remover",
                                         key=f"rem_email_{em['id']}",
@@ -2968,7 +3003,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
                         st.markdown("---")
                         st.markdown("**Adicionar novo e-mail:**")
-                        c_ne1, c_ne2, c_ne3 = st.columns([3, 3, 1.5])
+                        c_ne1, c_ne2 = st.columns(2)
                         with c_ne1:
                             novo_email_input = st.text_input(
                                 "E-mail *",
@@ -2978,27 +3013,26 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         with c_ne2:
                             nova_desc_input = st.text_input(
                                 "Descrição (opcional)",
-                                placeholder="Ex: E-mail pessoal, trabalho...",
+                                placeholder="Ex: E-mail pessoal, institucional...",
                                 key="novo_email_desc",
                             )
-                        with c_ne3:
-                            st.markdown("&nbsp;", unsafe_allow_html=True)
-                            if st.button(
-                                "Adicionar E-mail",
-                                type="primary",
-                                use_container_width=True,
-                                key="btn_add_email",
-                            ):
-                                ok_add, msg_add = adicionar_email_titular(
-                                    titular_nome=tit_sel_email,
-                                    email=novo_email_input,
-                                    descricao=nova_desc_input,
-                                )
-                                if ok_add:
-                                    st.success(msg_add)
-                                    st.rerun()
-                                else:
-                                    st.error(msg_add)
+
+                        if st.button(
+                            "➕ Adicionar E-mail ao Titular",
+                            type="primary",
+                            use_container_width=True,
+                            key="btn_add_email",
+                        ):
+                            ok_add, msg_add = adicionar_email_titular(
+                                titular_nome=tit_sel_email,
+                                email=novo_email_input,
+                                descricao=nova_desc_input,
+                            )
+                            if ok_add:
+                                st.success(msg_add)
+                                st.rerun()
+                            else:
+                                st.error(msg_add)
 
         # ── ABA: PLANO ODONTOLÓGICO (UNIODONTO) ──────────────────────────────
         with tab_uniodonto:
@@ -3196,7 +3230,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
             ])
 
             with _subtab_reg:
-                st.markdown("##### Registrar Status de Pagamento")
+                st.markdown("##### 📝 Registrar Status de Pagamento")
                 _tits_pag = listar_titulares()
                 if not _tits_pag:
                     st.warning("Nenhum titular cadastrado.")
@@ -3206,7 +3240,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
                     _nomes_pag = [t["titular_nome"] for t in _tits_pag]
                     _pag_tit = st.selectbox(
-                        "Titular:",
+                        "👤 Selecione o Titular:",
                         _nomes_pag,
                         format_func=lambda n: f"{n} ⚠️ (Mudança de Faixa)" if n in _titulares_com_migracao else n,
                         key="pag_reg_tit",
@@ -3228,35 +3262,60 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             for m in _migracoes_grupo
                         ])
                         st.markdown(f"""
-                        <div style="background-color: #FFF3CD; border: 1px solid #FCD34D; border-left: 5px solid #D97706; border-radius: 6px; padding: 12px 16px; margin: 8px 0 14px 0;">
-                            <h5 style="color: #92400E; margin: 0 0 6px 0; display: flex; align-items: center; gap: 6px;">
-                                ⚠️ <span>Mudança de Faixa Etária Registrada no Grupo Familiar</span>
-                            </h5>
-                            <p style="color: #92400E; font-size: 0.92rem; margin: 0 0 6px 0;">
-                                Integrante(s) deste grupo familiar atingiram idade para nova faixa etária. O valor esperado calculado de <strong>{formatar_moeda(_valor_auto)}</strong> já reflete este reajuste:
+                        <div style="background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 1px solid #FCD34D; border-left: 5px solid #D97706; border-radius: 8px; padding: 12px 16px; margin: 8px 0 14px 0; box-shadow: 0 1px 3px rgba(217,119,6,0.06);">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                <span style="font-size: 1.15rem;">⚠️</span>
+                                <strong style="color: #92400E; font-size: 0.95rem;">Mudança de Faixa Etária Identificada</strong>
+                            </div>
+                            <p style="color: #92400E; font-size: 0.88rem; margin: 0 0 6px 0;">
+                                Integrante(s) deste grupo familiar atingiram idade para nova faixa etária. O valor esperado calculado de <strong>{formatar_moeda(_valor_auto)}</strong> já inclui este reajuste:
                             </p>
-                            <ul style="color: #92400E; font-size: 0.91rem; margin: 0 0 4px 0; padding-left: 20px;">
+                            <ul style="color: #92400E; font-size: 0.88rem; margin: 0; padding-left: 18px; line-height: 1.45;">
                                 {itens_mig_html}
                             </ul>
                         </div>
                         """, unsafe_allow_html=True)
 
                     if _grupo_pag:
-                        _linhas_grupo = " | ".join(
-                            f"{m['beneficiario_nome']} ({m.get('faixa_calculada', '-')}{' ⚠️ [Mudança de Faixa]' if m.get('migrou_faixa') else ''}): "
-                            f"{formatar_moeda(m.get('valor_vigente', 0.0))}"
+                        itens_grupo_html = "".join([
+                            f"<div style='display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; background: #FFFFFF; border: 1px solid {'#FCD34D' if m.get('migrou_faixa') else '#E2E8F0'}; border-radius: 6px; margin-bottom: 5px; flex-wrap: wrap; gap: 6px;'>"
+                            f"<div style='display: flex; align-items: center; gap: 8px; flex-wrap: wrap;'>"
+                            f"<span style='font-weight: 600; color: #1E293B; font-size: 0.88rem;'>{m['beneficiario_nome']}</span>"
+                            f"<span style='font-size: 0.78rem; color: #64748B; background: #F1F5F9; padding: 2px 7px; border-radius: 10px;'>{m.get('grau_parentesco', 'Integrante')} • {m.get('faixa_calculada', '-')}</span>"
+                            f"{'<span style="background:#FEF3C7;color:#92400E;font-size:0.75rem;padding:2px 7px;border-radius:10px;font-weight:700;">⚠️ Faixa Reajustada</span>' if m.get('migrou_faixa') else ''}"
+                            f"</div>"
+                            f"<div style='font-weight: 700; color: #1B3A6B; font-size: 0.9rem;'>{formatar_moeda(m.get('valor_vigente', 0.0))}</div>"
+                            f"</div>"
                             for m in _grupo_pag
+                        ])
+                        st.markdown(f"""
+                        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 14px; margin: 6px 0 16px 0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-weight: 700; font-size: 0.86rem; color: #334155;">👥 Grupo Familiar ({len(_grupo_pag)} {'integrante' if len(_grupo_pag) == 1 else 'integrantes'})</span>
+                                <span style="font-size: 0.85rem; color: #475569;">Total Calculado: <strong style="color: #1B3A6B; font-size: 0.94rem;">{formatar_moeda(_valor_auto)}</strong></span>
+                            </div>
+                            {itens_grupo_html}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # ── BLOCO 1: STATUS E DATA DO PAGAMENTO (Simétricos) ──
+                    _col_st1, _col_st2 = st.columns(2)
+                    with _col_st1:
+                        _pag_status = st.selectbox(
+                            "Status do Pagamento:",
+                            options=list(STATUS_PAGAMENTO_VALIDOS),
+                            key="pag_reg_status",
                         )
-                        st.caption(f"Grupo familiar: {_linhas_grupo}")
+                    with _col_st2:
+                        _pag_data = st.text_input(
+                            "Data do Pagamento:",
+                            placeholder="DD/MM/AAAA (ex: 10/10/2026)",
+                            key="pag_reg_data",
+                        )
 
-                    _pag_status = st.selectbox(
-                        "Status do Pagamento:",
-                        options=list(STATUS_PAGAMENTO_VALIDOS),
-                        key="pag_reg_status",
-                    )
-
-                    _c_pag_v1, _c_pag_v2 = st.columns(2)
-                    with _c_pag_v1:
+                    # ── BLOCO 2: VALORES FINANCEIROS (Simetria perfeita de inputs) ──
+                    _col_v1, _col_v2 = st.columns(2)
+                    with _col_v1:
                         _pag_vEsperado = st.number_input(
                             "Valor Esperado (R$):",
                             min_value=0.0,
@@ -3264,40 +3323,45 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             step=0.01,
                             format="%.2f",
                             key="pag_reg_vEsp",
-                            help="Preenchido automaticamente com a soma do grupo familiar. Edite se necessario.",
+                            help="Preenchido automaticamente com base na soma das vidas do grupo familiar.",
                         )
-                    with _c_pag_v2:
-                        _copiar_valor = st.checkbox(
-                            f"Copiar valor esperado ({formatar_moeda(_pag_vEsperado)})",
-                            value=False,
-                            key="pag_copiar_valor",
-                        )
+                    with _col_v2:
                         _pag_vPago = st.number_input(
                             "Valor Pago (R$):",
                             min_value=0.0,
-                            value=(_pag_vEsperado if _copiar_valor else 0.0),
                             step=0.01,
                             format="%.2f",
                             key="pag_reg_vPago",
+                            help="Informe o valor efetivamente recebido. Use o botão abaixo para copiar o esperado se for integral.",
                         )
 
-                    _c_pag_d1, _c_pag_d2 = st.columns(2)
-                    with _c_pag_d1:
-                        _pag_data = st.text_input(
-                            "Data do Pagamento (DD/MM/AAAA):",
-                            placeholder="Ex: 10/10/2025",
-                            key="pag_reg_data",
-                        )
-                    with _c_pag_d2:
-                        _pag_obs = st.text_input(
-                            "Observacoes:",
-                            placeholder="Opcional...",
-                            key="pag_reg_obs",
+                    # ── AÇÃO RÁPIDA: Copiar esperado para pago sem desalinhamento ──
+                    def _copiar_esperado_cb():
+                        st.session_state["pag_reg_vPago"] = float(st.session_state.get("pag_reg_vEsp", _valor_auto))
+
+                    _col_cop1, _ = st.columns([1.5, 1])
+                    with _col_cop1:
+                        st.button(
+                            f"📋 Copiar Esperado ({formatar_moeda(_pag_vEsperado)}) para Valor Pago",
+                            key="btn_copiar_esperado",
+                            use_container_width=True,
+                            on_click=_copiar_esperado_cb,
+                            help="Preenche instantaneamente o campo Valor Pago com o Valor Esperado.",
                         )
 
+                    # ── BLOCO 3: OBSERVAÇÕES ──
+                    _pag_obs = st.text_input(
+                        "Observações do Pagamento (opcional):",
+                        placeholder="Ex: Comprovante PIX recebido, acerto de diferença pendente...",
+                        key="pag_reg_obs",
+                    )
+
+                    # ── BOTÃO PRINCIPAL DE SALVAR ──
                     if st.button(
-                        "Salvar Status de Pagamento", type="primary",
-                        use_container_width=True, key="btn_salvar_pag"
+                        "💾 Salvar Status de Pagamento",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_salvar_pag",
                     ):
                         _ok_pag, _msg_pag = registrar_pagamento(
                             titular_nome=_pag_tit,
@@ -3315,23 +3379,35 @@ elif modulo == "🔒 Área Restrita (Administração)":
                         else:
                             st.error(_msg_pag)
 
-                    st.markdown("---")
-                    st.markdown("##### Notificar Titular por E-mail")
+                    # ── BLOCO 4: NOTIFICAÇÃO AO TITULAR POR E-MAIL ──
+                    st.markdown("""
+                    <div style="margin: 22px 0 10px 0; border-top: 1px dashed #CBD5E1; padding-top: 14px;">
+                        <h5 style="color: #1B3A6B; margin: 0 0 4px 0; display: flex; align-items: center; gap: 8px;">
+                            ✉️ <span>Notificar Titular por E-mail</span>
+                        </h5>
+                    </div>
+                    """, unsafe_allow_html=True)
 
                     _emails_reg = obter_emails_para_notificacao(_pag_tit)
                     if not _emails_reg:
                         st.warning(
-                            f"Nenhum e-mail cadastrado para **{_pag_tit}**. "
-                            "Acesse **Gestao de Integrantes -> E-mails dos Titulares** para cadastrar."
+                            f"⚠️ Nenhum e-mail cadastrado para **{_pag_tit}**. "
+                            "Acesse **Gestão de Integrantes & Grupos → E-mails dos Titulares** para cadastrar."
                         )
                     else:
-                        st.caption(f"E-mail(s): {', '.join(_emails_reg)}")
+                        pills_email_html = " ".join([
+                            f"<span style='display: inline-flex; align-items: center; gap: 5px; background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; padding: 3px 10px; border-radius: 14px; font-size: 0.82rem; font-weight: 600; margin-right: 6px; margin-bottom: 6px;'>"
+                            f"✉️ {em}</span>"
+                            for em in _emails_reg
+                        ])
+                        st.markdown(f"<div style='margin-bottom: 12px;'><strong>Destinatário(s):</strong> {pills_email_html}</div>", unsafe_allow_html=True)
+
                         _col_notif1, _col_notif2 = st.columns(2)
                         with _col_notif1:
                             _tipo_notif_reg = st.selectbox(
-                                "Tipo de notificacao:",
+                                "Tipo de Notificação:",
                                 options=[
-                                    "Inadimplencia (sem pagamento)",
+                                    "Inadimplência (sem pagamento)",
                                     "Pagamento Parcial",
                                 ],
                                 key="tipo_notif_reg",
@@ -3341,13 +3417,14 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             if _migracoes_grupo:
                                 _obs_padrao = "Aviso: houve alteração de faixa etária no grupo familiar (" + ", ".join(f"{x['beneficiario_nome']}: {x['faixa_calculada']}" for x in _migracoes_grupo) + ")."
                             _obs_notif_reg = st.text_input(
-                                "Observacao adicional (opcional):",
+                                "Observação Adicional no E-mail (opcional):",
                                 value=_obs_padrao,
-                                placeholder="Ex: Regularizar ate dia 15...",
+                                placeholder="Ex: Regularizar até dia 15...",
                                 key="obs_notif_reg",
                             )
+
                         if st.button(
-                            f"Enviar Notificacao para {_pag_tit}",
+                            f"✉️ Enviar Notificação por E-mail para {_pag_tit}",
                             use_container_width=True,
                             key="btn_notif_inline",
                         ):
@@ -3376,7 +3453,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 else:
                                     st.error(f"Falha: {_msg_n}")
                             except Exception as _ex_notif:
-                                st.error(f"Erro ao enviar notificacao: {_ex_notif}")
+                                st.error(f"Erro ao enviar notificação: {_ex_notif}")
 
             with _subtab_lista:
                 st.markdown(f"##### Status de Pagamentos - {mes_por_extenso(_mes_pag).capitalize()}/{_ano_pag}")
