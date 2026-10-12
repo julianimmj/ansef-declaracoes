@@ -3283,7 +3283,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             f"</li>"
                             for m in _migracoes_grupo
                         ])
-                        st.markdown(f"""
+                        st.html(f"""
                         <div style="background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 1px solid #FCD34D; border-left: 5px solid #D97706; border-radius: 8px; padding: 12px 16px; margin: 8px 0 14px 0; box-shadow: 0 1px 3px rgba(217,119,6,0.06);">
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
                                 <span style="font-size: 1.15rem;">⚠️</span>
@@ -3296,7 +3296,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 {itens_mig_html}
                             </ul>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """)
 
                     if _grupo_pag:
                         itens_grupo_html = "".join([
@@ -3320,6 +3320,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 f"<div style='font-weight: 700; color: #15803D; font-size: 0.92rem;'>+ {formatar_moeda(_val_uniodonto_auto)}</div>"
                                 f"</div>"
                             )
+                            odonto_subtotal_html = f" • Odonto: <strong style='color:#15803D;'>{formatar_moeda(_val_uniodonto_auto)}</strong>"
                         else:
                             uniodonto_card_html = (
                                 f"<div style='padding: 6px 10px; background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 6px; margin-top: 8px; font-size: 0.83rem; color: #64748B; display:flex; justify-content:space-between;'>"
@@ -3327,21 +3328,20 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 f"<span>R$ 0,00</span>"
                                 f"</div>"
                             )
+                            odonto_subtotal_html = ""
 
-                        st.markdown(f"""
+                        st.html(f"""
                         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 14px; margin: 6px 0 16px 0;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
                                 <span style="font-weight: 700; font-size: 0.86rem; color: #334155;">👥 Grupo Familiar ({len(_grupo_pag)} {'integrante' if len(_grupo_pag) == 1 else 'integrantes'})</span>
                                 <div style="font-size: 0.84rem; color: #475569;">
-                                    Saúde: <strong>{formatar_moeda(_valor_auto)}</strong>
-                                    {' • Odonto: <strong style="color:#15803D;">' + formatar_moeda(_val_uniodonto_auto) + '</strong>' if _tem_uniodonto else ''}
-                                    • Total Consolidado: <strong style="color: #1B3A6B; font-size: 0.94rem;">{formatar_moeda(_val_total_esperado_auto)}</strong>
+                                    Saúde: <strong>{formatar_moeda(_valor_auto)}</strong>{odonto_subtotal_html} • Total Consolidado: <strong style="color: #1B3A6B; font-size: 0.94rem;">{formatar_moeda(_val_total_esperado_auto)}</strong>
                                 </div>
                             </div>
                             {itens_grupo_html}
                             {uniodonto_card_html}
                         </div>
-                        """, unsafe_allow_html=True)
+                        """)
 
                     # ── BLOCO 1: STATUS E DATA DO PAGAMENTO (Simétricos) ──
                     _col_st1, _col_st2 = st.columns(2)
@@ -3454,13 +3454,13 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             st.error(_msg_pag)
 
                     # ── BLOCO 4: NOTIFICAÇÃO AO TITULAR POR E-MAIL ──
-                    st.markdown("""
+                    st.html("""
                     <div style="margin: 22px 0 10px 0; border-top: 1px dashed #CBD5E1; padding-top: 14px;">
                         <h5 style="color: #1B3A6B; margin: 0 0 4px 0; display: flex; align-items: center; gap: 8px;">
                             ✉️ <span>Notificar Titular por E-mail</span>
                         </h5>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """)
 
                     _emails_reg = obter_emails_para_notificacao(_pag_tit)
                     if not _emails_reg:
@@ -3474,7 +3474,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             f"✉️ {em}</span>"
                             for em in _emails_reg
                         ])
-                        st.markdown(f"<div style='margin-bottom: 12px;'><strong>Destinatário(s):</strong> {pills_email_html}</div>", unsafe_allow_html=True)
+                        st.html(f"<div style='margin-bottom: 12px;'><strong>Destinatário(s):</strong> {pills_email_html}</div>")
 
                         _col_notif1, _col_notif2 = st.columns(2)
                         with _col_notif1:
