@@ -225,6 +225,17 @@
       "valor_total_esperado": 3064.4,
       "data_pagamento": "10/10/2026",
       "observacoes": ""
+    },
+    {
+      "titular_nome": "Lea Barbosa Diogenes dos Anjos",
+      "mes_ano": "2026-10",
+      "status_pagamento": "PAGO",
+      "valor_esperado": 1496.0,
+      "valor_pago": 1496.0,
+      "valor_uniodonto": 0.0,
+      "valor_total_esperado": 1496.0,
+      "data_pagamento": "10/10/2026",
+      "observacoes": ""
     }
   ]
 }
