@@ -924,9 +924,9 @@
     "ano_referencia": 2026,
     "data_pagamento": "03/04/2026",
     "valor_total": 845.0,
-    "status": "PENDENTE",
+    "status": "APROVADO",
     "data_solicitacao": "2026-10-14 17:46:06",
-    "data_analise": null,
+    "data_analise": "2026-10-14T20:33:46.314286",
     "observacoes_admin": null
   },
   {
