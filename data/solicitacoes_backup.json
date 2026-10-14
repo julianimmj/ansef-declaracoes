@@ -1014,10 +1014,10 @@
     "ano_referencia": 2026,
     "data_pagamento": "03/08/2026",
     "valor_total": 845.0,
-    "status": "PENDENTE",
+    "status": "REJEITADO",
     "data_solicitacao": "2026-10-14 17:50:52",
-    "data_analise": null,
-    "observacoes_admin": null
+    "data_analise": "2026-10-14T20:36:09.829332",
+    "observacoes_admin": "Solicitação duplicada"
   },
   {
     "id": 80,
