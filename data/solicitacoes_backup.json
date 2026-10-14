@@ -988,5 +988,20 @@
     "data_solicitacao": "2026-10-14 17:48:20",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 78,
+    "codigo_validacao": "ANSEF-2026-ABE5AC24",
+    "titular_nome": "Ivan Esteves Ribeiro Filho",
+    "titular_cpf": "56037031568",
+    "dependentes_incluidos": "[{\"nome\": \"Ivan Esteves Ribeiro Filho\", \"parentesco\": \"Titular\", \"valor\": 845.0}]",
+    "mes_referencia": 8,
+    "ano_referencia": 2026,
+    "data_pagamento": "08/09/2026",
+    "valor_total": 845.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-14 17:48:57",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
