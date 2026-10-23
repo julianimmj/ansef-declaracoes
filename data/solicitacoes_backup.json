@@ -1063,5 +1063,20 @@
     "data_solicitacao": "2026-10-23 03:12:38",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 83,
+    "codigo_validacao": "ANSEF-2026-65670815",
+    "titular_nome": "Sergio Luiz de Mello Furtado Motta",
+    "titular_cpf": "84007958149",
+    "dependentes_incluidos": "[{\"nome\": \"Sergio Luiz de Mello Furtado Motta\", \"parentesco\": \"Titular\", \"valor\": 612.0}, {\"nome\": \"Davi de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor\": 250.0}, {\"nome\": \"Filipe de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor\": 295.0}, {\"nome\": \"Juliany Boaventura de Miranda Motta\", \"parentesco\": \"Cônjuge\", \"valor\": 448.0}, {\"nome\": \"Levi de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor\": 250.0}]",
+    "mes_referencia": 2,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/02/2026",
+    "valor_total": 1855.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-10-23 03:12:56",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
