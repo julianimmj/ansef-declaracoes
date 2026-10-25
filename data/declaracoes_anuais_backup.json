@@ -50,9 +50,9 @@
     "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
     "beneficiarios": "[{\"nome\": \"Sergio Luiz de Mello Furtado Motta\", \"parentesco\": \"Titular\", \"valor_mensal\": 612.0, \"qtd_meses\": 10, \"valor_total\": 6120.0}, {\"nome\": \"Davi de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor_mensal\": 250.0, \"qtd_meses\": 10, \"valor_total\": 2500.0}, {\"nome\": \"Filipe de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor_mensal\": 295.0, \"qtd_meses\": 10, \"valor_total\": 2950.0}, {\"nome\": \"Juliany Boaventura de Miranda Motta\", \"parentesco\": \"Cônjuge\", \"valor_mensal\": 448.0, \"qtd_meses\": 10, \"valor_total\": 4480.0}, {\"nome\": \"Levi de Miranda Motta\", \"parentesco\": \"Filho(a)\", \"valor_mensal\": 250.0, \"qtd_meses\": 10, \"valor_total\": 2500.0}]",
     "valor_total": 18550.0,
-    "status": "PENDENTE",
+    "status": "APROVADO",
     "data_solicitacao": "2026-10-23 03:13:55",
-    "data_analise": null,
+    "data_analise": "2026-10-25T09:43:03.067709",
     "observacoes_admin": null
   }
 ]
