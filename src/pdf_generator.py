@@ -158,19 +158,49 @@ def _html_to_pdf(html: str) -> bytes:
         from xhtml2pdf import pisa
 
         buffer = io.BytesIO()
-        pisa_status = pisa.CreatePDF(
-            io.StringIO(html),
-            dest=buffer,
-            encoding="utf-8",
-        )
-        if pisa_status.err:
+        html_bytes = html.encode("utf-8")
+        pisa_status = None
+
+        # 1. Tenta com stream binário UTF-8 (compatível com html5lib e xhtml2pdf>=0.2.15)
+        try:
+            pisa_status = pisa.CreatePDF(
+                io.BytesIO(html_bytes),
+                dest=buffer,
+                encoding="utf-8",
+            )
+        except TypeError:
+            # 2. Se a versão de xhtml2pdf/html5lib rejeitar encoding com stream,
+            # tenta passar a string diretamente sem encoding explícito
+            buffer = io.BytesIO()
+            try:
+                pisa_status = pisa.CreatePDF(
+                    html,
+                    dest=buffer,
+                )
+            except Exception:
+                # 3. Tenta passar os bytes brutos
+                buffer = io.BytesIO()
+                pisa_status = pisa.CreatePDF(
+                    html_bytes,
+                    dest=buffer,
+                )
+
+        if pisa_status and getattr(pisa_status, "err", 0):
             logger.error(f"xhtml2pdf retornou erros: {pisa_status.err}")
+
         pdf_bytes = buffer.getvalue()
         buffer.close()
-        return pdf_bytes
+
+        if pdf_bytes:
+            return pdf_bytes
+        logger.warning("xhtml2pdf gerou buffer vazio. Usando fallback reportlab.")
+        return _fallback_reportlab_pdf(html)
 
     except ImportError:
         logger.error("xhtml2pdf não instalado. Tentando reportlab como fallback.")
+        return _fallback_reportlab_pdf(html)
+    except Exception as e:
+        logger.error(f"Erro ao converter HTML para PDF via xhtml2pdf: {e}. Usando fallback.")
         return _fallback_reportlab_pdf(html)
 
 
