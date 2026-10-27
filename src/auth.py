@@ -8,6 +8,11 @@ from __future__ import annotations
 from typing import Optional
 from datetime import date
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 import streamlit as st
 try:
     from src.database import validar_nascimento_titular
