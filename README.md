@@ -47,7 +47,7 @@ streamlit run app.py
 ### Configuração de Secrets no Streamlit Cloud
 
 ```toml
-ADMIN_PASSWORD = "mbj172007"
+ADMIN_PASSWORD = "sua_senha_de_admin_aqui"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "juliani.mmj@gmail.com"

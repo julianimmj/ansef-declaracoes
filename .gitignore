@@ -1,5 +1,8 @@
-# Secrets (contém senhas)
+# Secrets e Variáveis de Ambiente
 .streamlit/secrets.toml
+.env
+.env.*
+!.env.example
 
 # Caches SQLite temporários (o banco data/ansef_database.db é rastreado para persistência)
 data/*.db-shm

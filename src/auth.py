@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 from datetime import date
+import os
 import streamlit as st
 try:
     from src.database import validar_nascimento_titular
@@ -58,13 +59,17 @@ def get_associado_logado() -> str | None:
 def autenticar_admin(senha: str) -> bool:
     """
     Valida a senha do administrador.
-    Prioriza st.secrets; caso não configurado, usa fallback fixo.
+    Prioriza st.secrets e variáveis de ambiente / .env.
     """
+    senha_correta = ""
     try:
-        senha_correta = st.secrets.get("ADMIN_PASSWORD", "mbj172007")
+        if hasattr(st, "secrets"):
+            senha_correta = str(st.secrets.get("ADMIN_PASSWORD", "")).strip()
     except Exception:
-        senha_correta = "mbj172007"
-    return senha == senha_correta
+        pass
+    if not senha_correta:
+        senha_correta = os.environ.get("ADMIN_PASSWORD", "").strip()
+    return bool(senha_correta and senha == senha_correta)
 
 
 def login_admin(senha: str) -> bool:

@@ -4023,7 +4023,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                    - Clique nos três pontinhos **⋮** > **Settings** > **Secrets**.
                    - Cole o seguinte bloco com o seu e-mail e a senha de 16 letras:
                    ```toml
-                   ADMIN_PASSWORD = "mbj172007"
+                   ADMIN_PASSWORD = "sua_senha_segura_aqui"
                    SMTP_SERVER = "smtp.gmail.com"
                    SMTP_PORT = 587
                    SMTP_USER = "juliani.mmj@gmail.com"
