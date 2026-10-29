@@ -1,13 +1,12 @@
 """
 Módulo de autenticação e validação de acesso.
 - Associados: validação por data de nascimento do titular.
-- Administrador: validação por senha com fallback para secrets.toml e hash SHA-256.
+- Administrador: validação por senha via Streamlit Secrets ou variáveis de ambiente.
 """
 from __future__ import annotations
 
 from typing import Optional
 from datetime import date
-import hashlib
 import os
 try:
     from dotenv import load_dotenv
@@ -19,8 +18,6 @@ try:
     from src.database import validar_nascimento_titular
 except ImportError:
     from database import validar_nascimento_titular
-
-_ADMIN_PWD_SHA256 = "79853572e81d04b2ee2654230edc82e6c6ab8239fd28238200472937431670c4"
 
 
 def autenticar_associado(titular_nome: str, data_nascimento: date) -> bool:
@@ -67,10 +64,8 @@ def get_associado_logado() -> str | None:
 def autenticar_admin(senha: str) -> bool:
     """
     Valida a senha do administrador.
-    Prioriza st.secrets e variáveis de ambiente / .env, com fallback seguro por hash SHA-256.
+    Prioriza st.secrets e variáveis de ambiente / .env.
     """
-    if not senha:
-        return False
     senha_correta = ""
     try:
         if hasattr(st, "secrets"):
@@ -79,9 +74,7 @@ def autenticar_admin(senha: str) -> bool:
         pass
     if not senha_correta:
         senha_correta = os.environ.get("ADMIN_PASSWORD", "").strip()
-    if senha_correta:
-        return senha == senha_correta
-    return hashlib.sha256(senha.encode("utf-8")).hexdigest() == _ADMIN_PWD_SHA256
+    return bool(senha_correta and senha == senha_correta)
 
 
 def login_admin(senha: str) -> bool:
