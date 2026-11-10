@@ -54,5 +54,19 @@
     "data_solicitacao": "2026-10-23 03:13:55",
     "data_analise": "2026-10-25T09:43:03.067709",
     "observacoes_admin": null
+  },
+  {
+    "id": 7,
+    "codigo_validacao": "ANSEF-A2025-8249D34E",
+    "titular_nome": "ASSOCIADO TESTE ANUAL SILVA",
+    "titular_cpf": "12345678901",
+    "ano_referencia": 2025,
+    "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]",
+    "beneficiarios": "[{\"nome\": \"ASSOCIADO TESTE ANUAL SILVA\", \"parentesco\": \"Titular\", \"valor_mensal\": 650.0, \"qtd_meses\": 12, \"valor_total\": 7800.0}, {\"nome\": \"DEPENDENTE TESTE ANUAL SILVA\", \"parentesco\": \"Filho(a)\", \"valor_mensal\": 320.0, \"qtd_meses\": 12, \"valor_total\": 3840.0}]",
+    "valor_total": 11640.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-11-10 17:54:22",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
