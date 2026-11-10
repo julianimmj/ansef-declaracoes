@@ -14,9 +14,11 @@ from src.database import (
     listar_todas_migracoes,
     verificar_migracoes_grupo,
     atualizar_tabela_faixa,
+    atualizar_tabela_faixas_lote,
     reajustar_tabela_faixas_percentual,
     recalcular_mensalidades_membros,
     listar_todos_membros,
+    listar_titulares,
 )
 
 
@@ -86,6 +88,68 @@ class TestFaixasEtarias(unittest.TestCase):
         # Grupo sem migração
         migs_carlos = verificar_migracoes_grupo("Carlos Sergio Praciano P.")
         self.assertEqual(len(migs_carlos), 0)
+
+    def test_autorrecuperacao_tabelas_vazias_e_reajuste(self):
+        import shutil
+        import sqlite3
+        import tempfile
+
+        tmpdir = tempfile.mkdtemp(prefix="ansef_test_reaj_")
+        try:
+            tmp_db = os.path.join(tmpdir, "test.db")
+            tmp_csv = os.path.join(tmpdir, "integrantes.csv")
+            tmp_precos = os.path.join(tmpdir, "config_precos.json")
+            base_data = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+            shutil.copy2(os.path.join(base_data, "integrantes.csv"), tmp_csv)
+            shutil.copy2(os.path.join(base_data, "config_precos.json"), tmp_precos)
+
+            old_db = os.environ.get("ANSEF_DB_PATH")
+            old_csv = os.environ.get("ANSEF_CSV_PATH")
+            old_precos = os.environ.get("ANSEF_CONFIG_PRECOS_PATH")
+            os.environ["ANSEF_DB_PATH"] = tmp_db
+            os.environ["ANSEF_CSV_PATH"] = tmp_csv
+            os.environ["ANSEF_CONFIG_PRECOS_PATH"] = tmp_precos
+            try:
+                inicializar_banco()
+                # Simula esvaziamento acidental das tabelas (rollback de inicialização interrompida)
+                conn = sqlite3.connect(tmp_db)
+                conn.execute("DELETE FROM tabela_faixas_etarias")
+                conn.execute("DELETE FROM membros")
+                conn.commit()
+                conn.close()
+
+                # Verifica que obter_tabela_faixas e listar_titulares se autorrecuperam imediatamente
+                faixas_rec = obter_tabela_faixas()
+                self.assertEqual(len(faixas_rec), 10)
+                titulares_rec = listar_titulares()
+                self.assertEqual(len(titulares_rec), 17)
+                membros_rec = listar_todos_membros()
+                self.assertEqual(len(membros_rec), 35)
+
+                # Testa reajuste percentual em lote sem perda de registros
+                recalc_cnt = reajustar_tabela_faixas_percentual(4.22)
+                self.assertEqual(recalc_cnt, 34)  # 35 membros menos 1 isento (Nestor Padilha)
+                faixas_pos = obter_tabela_faixas()
+                self.assertEqual(len(faixas_pos), 10)
+                self.assertAlmostEqual(faixas_pos[0]["valor_privativo"], 364.77, places=2)
+                self.assertAlmostEqual(faixas_pos[0]["valor_coletivo"], 260.55, places=2)
+
+                # Testa atualização em lote de volta aos valores originais
+                lote = {fx["id"]: (350.0, 250.0) for fx in faixas_pos[:1]}
+                atualizar_tabela_faixas_lote(lote)
+                self.assertAlmostEqual(obter_tabela_faixas()[0]["valor_privativo"], 350.0, places=2)
+            finally:
+                for k, v in (
+                    ("ANSEF_DB_PATH", old_db),
+                    ("ANSEF_CSV_PATH", old_csv),
+                    ("ANSEF_CONFIG_PRECOS_PATH", old_precos),
+                ):
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

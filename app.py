@@ -57,6 +57,7 @@ try:
         contar_solicitacoes_por_status_ano,
         obter_tabela_faixas,
         atualizar_tabela_faixa,
+        atualizar_tabela_faixas_lote,
         reajustar_tabela_faixas_percentual,
         recalcular_mensalidades_membros,
         verificar_migracoes_grupo,
@@ -164,6 +165,7 @@ except ImportError:
         contar_solicitacoes_por_status_ano,
         obter_tabela_faixas,
         atualizar_tabela_faixa,
+        atualizar_tabela_faixas_lote,
         reajustar_tabela_faixas_percentual,
         recalcular_mensalidades_membros,
         verificar_migracoes_grupo,
@@ -268,6 +270,11 @@ def _garantir_inicializacao_banco():
     return True
 
 _garantir_inicializacao_banco()
+try:
+    if not obter_tabela_faixas() or not listar_titulares():
+        inicializar_banco()
+except Exception:
+    pass
 
 # ─── CSS CUSTOM (RESPONSIVO PARA CELULAR & DESKTOP) ──────────────────────────────
 
@@ -2605,6 +2612,10 @@ elif modulo == "🔒 Área Restrita (Administração)":
                     "Qualquer correção salva aqui recalcula automaticamente as mensalidades de todos os associados e dependentes."
                 )
 
+                _msg_tab_ok = st.session_state.pop("_msg_sucesso_tabela", None)
+                if _msg_tab_ok:
+                    st.success(_msg_tab_ok)
+
                 # Reajuste geral da tabela em percentual
                 with st.expander("📈 Aplicar Reajuste Percentual Geral na Tabela (%)", expanded=False):
                     col_p_in, col_p_btn = st.columns([2, 1.2])
@@ -2624,7 +2635,12 @@ elif modulo == "🔒 Área Restrita (Administração)":
                                 st.warning("Informe um percentual diferente de zero.")
                             else:
                                 tot_recalc = reajustar_tabela_faixas_percentual(perc_tab)
-                                st.success(f"✅ Reajuste de {perc_tab:+.2f}% aplicado a todas as faixas! {tot_recalc} integrante(s) recalculados.")
+                                for _k in list(st.session_state.keys()):
+                                    if str(_k).startswith(("fx_p_", "fx_c_", "reaj_", "perc_reaj_tabela_geral")):
+                                        st.session_state.pop(_k, None)
+                                st.session_state["_msg_sucesso_tabela"] = (
+                                    f"✅ Reajuste de {perc_tab:+.2f}% aplicado a todas as faixas! {tot_recalc} integrante(s) recalculados."
+                                )
                                 st.rerun()
 
                 faixas_atuais = obter_tabela_faixas()
@@ -2663,9 +2679,13 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
                 st.markdown("")
                 if st.button("💾 Salvar Alterações na Tabela e Recalcular Todos os Integrantes", type="primary", use_container_width=True, key="btn_save_all_faixas"):
-                    for fx_id, (vp, vc) in valores_editados.items():
-                        atualizar_tabela_faixa(fx_id, vp, vc)
-                    st.success("✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados.")
+                    atualizar_tabela_faixas_lote(valores_editados)
+                    for _k in list(st.session_state.keys()):
+                        if str(_k).startswith(("fx_p_", "fx_c_", "reaj_")):
+                            st.session_state.pop(_k, None)
+                    st.session_state["_msg_sucesso_tabela"] = (
+                        "✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados."
+                    )
                     st.rerun()
 
             with subtab_membros:
@@ -3966,6 +3986,9 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             conteudo_p = arquivo_upload_precos.read().decode("utf-8")
                             sucesso_resp, msg_resp = importar_backup_precos_json(conteudo_p)
                             if sucesso_resp:
+                                for _k in list(st.session_state.keys()):
+                                    if str(_k).startswith(("fx_p_", "fx_c_", "reaj_")):
+                                        st.session_state.pop(_k, None)
                                 st.success(f"✅ {msg_resp}")
                                 st.rerun()
                             else:

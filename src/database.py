@@ -25,7 +25,16 @@ logger = logging.getLogger(__name__)
 # repositório, o que sobrescrevia o .db enquanto os arquivos -wal/-shm permaneciam,
 # corrompendo o banco ("database disk image is malformed").
 REPO_DB_SEED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ansef_database.db")
-DB_PATH = os.environ.get("ANSEF_DB_PATH") or REPO_DB_SEED_PATH
+
+
+def _caminho_db_runtime_padrao() -> str:
+    """Caminho de execução isolado fora da árvore do repositório Git."""
+    runtime_dir = os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime_v2")
+    os.makedirs(runtime_dir, exist_ok=True)
+    return os.path.join(runtime_dir, "ansef_database.db")
+
+
+DB_PATH = os.environ.get("ANSEF_DB_PATH") or _caminho_db_runtime_padrao()
 CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
 SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
 CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "config_precos.json")
@@ -34,6 +43,30 @@ def _obter_db_path() -> str:
     path = os.environ.get("ANSEF_DB_PATH") or DB_PATH
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     return path
+
+
+def _semear_banco_runtime(db_path: str) -> None:
+    """
+    Se o banco de runtime ainda não existir e for o caminho isolado padrão,
+    copia o banco semente versionado no repositório (REPO_DB_SEED_PATH) como base inicial.
+    """
+    try:
+        if os.path.exists(db_path) and os.path.getsize(db_path) > 0:
+            return
+        if os.path.abspath(db_path) != os.path.abspath(_caminho_db_runtime_padrao()):
+            return
+        if not os.path.exists(REPO_DB_SEED_PATH) or os.path.getsize(REPO_DB_SEED_PATH) == 0:
+            return
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        src = sqlite3.connect(REPO_DB_SEED_PATH, timeout=15)
+        dst = sqlite3.connect(db_path, timeout=15)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+    except Exception as e:
+        logger.warning(f"Aviso ao semear banco de runtime a partir de {REPO_DB_SEED_PATH}: {e}")
 
 def _obter_csv_path() -> str:
     return os.environ.get("ANSEF_CSV_PATH") or CSV_PATH
@@ -96,19 +129,34 @@ def _eh_erro_corrupcao(e: BaseException) -> bool:
 
 
 def _banco_integro(db_path: str) -> bool:
-    """Valida se o arquivo existe, tem tamanho válido, passa no quick_check e contém tabelas mínimas."""
+    """Valida se o arquivo existe, tem tamanho válido, passa no quick_check, contém tabelas mínimas e dados essenciais."""
     if not os.path.exists(db_path) or os.path.getsize(db_path) == 0:
         return False
     conn = None
     try:
-        conn = sqlite3.connect(db_path, timeout=5)
+        conn = sqlite3.connect(db_path, timeout=30)
         row = conn.execute("PRAGMA quick_check").fetchone()
         if not row or str(row[0]).lower() != "ok":
             return False
         tabelas = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()}
-        return {"membros", "solicitacoes", "tabela_faixas_etarias"}.issubset(tabelas)
+        if not {"membros", "solicitacoes", "tabela_faixas_etarias"}.issubset(tabelas):
+            return False
+        count_faixas = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
+        if count_faixas < len(TABELA_FAIXAS_PADRAO):
+            return False
+        if os.path.exists(_obter_csv_path()):
+            count_membros = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
+            if count_membros == 0:
+                return False
+        return True
+    except sqlite3.OperationalError as e:
+        msg = str(e).lower()
+        if "locked" in msg or "busy" in msg:
+            # Lock temporário não significa banco corrompido
+            return True
+        return False
     except Exception:
         return False
     finally:
@@ -117,6 +165,40 @@ def _banco_integro(db_path: str) -> bool:
                 conn.close()
             except Exception:
                 pass
+
+
+def _garantir_faixas_populada(conn) -> None:
+    """Garante que tabela_faixas_etarias nunca fique vazia ou incompleta (autorrecuperação imediata)."""
+    try:
+        cnt = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
+        if cnt < len(TABELA_FAIXAS_PADRAO):
+            conn.execute("DELETE FROM tabela_faixas_etarias")
+            try:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'tabela_faixas_etarias'")
+            except Exception:
+                pass
+            for item in TABELA_FAIXAS_PADRAO:
+                conn.execute("""
+                    INSERT INTO tabela_faixas_etarias
+                    (faixa_etaria, idade_min, idade_max, valor_privativo, valor_coletivo, ordem)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, item)
+            _carregar_backup_precos(conn)
+    except Exception as e:
+        logger.warning(f"Aviso ao garantir faixas populadas: {e}")
+
+
+def _garantir_membros_populados(conn) -> None:
+    """Garante que a tabela membros nunca fique vazia se integrantes.csv existir."""
+    try:
+        cnt = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
+        if cnt == 0 and os.path.exists(_obter_csv_path()):
+            _garantir_faixas_populada(conn)
+            _carregar_csv(conn, forcar=True)
+            padronizar_todos_nomes_banco(conn)
+            recalcular_mensalidades_membros(conn)
+    except Exception as e:
+        logger.warning(f"Aviso ao garantir membros populados: {e}")
 
 
 def _isolar_banco_corrompido(db_path: str) -> None:
@@ -173,6 +255,7 @@ def _rerun_streamlit_se_possivel() -> None:
 def _conectar_com_resiliencia(max_tentativas: int = 4) -> sqlite3.Connection:
     """Abre conexão SQLite com garantia de existência do diretório, retry para locks e autorrecuperação."""
     db_path = _obter_db_path()
+    _semear_banco_runtime(db_path)
 
     if not _banco_integro(db_path) and not getattr(_recuperacao_estado, "ativo", False):
         logger.warning(f"Banco em {db_path} necessita recuperação/inicialização. Executando...")
@@ -249,7 +332,31 @@ def exportar_banco_bytes() -> bytes:
 
 
 def _git_sync_background(*filepaths: str) -> None:
-    """Sincroniza arquivos com o GitHub em background (não bloqueia a UI)."""
+    """Sincroniza arquivos com o GitHub em background (apenas em execução ativa do Streamlit, nunca em testes)."""
+    if os.environ.get("ANSEF_DISABLE_GIT_SYNC"):
+        return
+    if any(
+        os.environ.get(k)
+        for k in (
+            "ANSEF_DB_PATH",
+            "ANSEF_CSV_PATH",
+            "ANSEF_CONFIG_PRECOS_PATH",
+            "ANSEF_SOLICITACOES_BACKUP_PATH",
+            "ANSEF_ANUAIS_BACKUP_PATH",
+            "ANSEF_EMAILS_PAG_BACKUP_PATH",
+        )
+    ):
+        return
+    try:
+        import sys
+        if "unittest" in sys.modules or "pytest" in sys.modules:
+            return
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx() is None and not os.environ.get("ANSEF_FORCE_GIT_SYNC"):
+            return
+    except Exception:
+        return
+
     def _sync():
         try:
             try:
@@ -369,6 +476,7 @@ def inicializar_banco():
     """Cria as tabelas, carrega os dados iniciais e atualiza mensalidades com a tabela de faixas."""
     db_path = _obter_db_path()
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+    _semear_banco_runtime(db_path)
 
     conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -475,9 +583,14 @@ def inicializar_banco():
                 ON historico_pagamentos (mes_ano);
         """)
 
-        # Inicializa a tabela de faixas etárias caso vazia
+        # Inicializa a tabela de faixas etárias caso vazia ou incompleta
         count_faixas = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
-        if count_faixas == 0:
+        if count_faixas < len(TABELA_FAIXAS_PADRAO):
+            conn.execute("DELETE FROM tabela_faixas_etarias")
+            try:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'tabela_faixas_etarias'")
+            except Exception:
+                pass
             for item in TABELA_FAIXAS_PADRAO:
                 conn.execute("""
                     INSERT INTO tabela_faixas_etarias
@@ -541,23 +654,30 @@ def inicializar_banco():
         recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn, sync_git=False)
 
+        # Garante que o arquivo config_precos.json esteja sincronizado localmente
+        _salvar_backup_precos(conn, sync_git=False)
+
+        # COMMIT IMEDIATO dos dados cadastrais e tabelas de preços:
+        # garante que faixas etárias e membros jamais fiquem vazios se o Streamlit
+        # interromper a execução (RerunException/StopException) durante etapas posteriores.
+        conn.commit()
+
         # Sincroniza solicitações com backup JSON permanente (sempre mescla antes de salvar)
         _carregar_backup_solicitacoes(conn)
         _salvar_backup_solicitacoes(conn, sync_git=False)
 
-        # Garante que o arquivo config_precos.json esteja sincronizado localmente
-        _salvar_backup_precos(conn, sync_git=False)
-
         # Política de retenção: remove registros com mais de 5 anos
         _limpar_registros_antigos(conn)
-
-        # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado
-        _garantir_pdfs_solicitacoes_aprovadas(conn)
+        conn.commit()
 
         # Declarações ANUAIS (estrutura isolada). Qualquer falha aqui é contida
         # para jamais afetar o funcionamento das declarações mensais.
         try:
-            _inicializar_declaracoes_anuais(conn)
+            _garantir_tabela_anuais(conn)
+            _carregar_backup_anuais(conn)
+            _salvar_backup_anuais(conn, sync_git=False)
+            _limpar_anuais_antigas(conn)
+            conn.commit()
         except Exception as e:
             logger.warning(f"Inicialização das declarações anuais ignorada: {e}")
 
@@ -565,8 +685,16 @@ def inicializar_banco():
         try:
             _garantir_tabelas_emails_pagamentos(conn)
             _carregar_backup_emails_pagamentos(conn)
+            conn.commit()
         except Exception as e:
             logger.warning(f"Inicializacao de e-mails/pagamentos ignorada: {e}")
+
+        # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado (com commit incremental)
+        _garantir_pdfs_solicitacoes_aprovadas(conn)
+        try:
+            _garantir_pdfs_anuais_aprovadas(conn)
+        except Exception as e:
+            logger.warning(f"Síntese de PDFs anuais ignorada: {e}")
 
         conn.commit()
     except Exception:
@@ -578,7 +706,8 @@ def inicializar_banco():
 
 def _carregar_csv(conn, forcar: bool = False):
     """Carrega os dados do CSV de integrantes para a tabela membros, garantindo sincronia total com o repositório."""
-    if not os.path.exists(CSV_PATH):
+    csv_path = _obter_csv_path()
+    if not os.path.exists(csv_path):
         return
 
     # Se a tabela membros já possui registros e não foi solicitada carga forçada,
@@ -594,7 +723,7 @@ def _carregar_csv(conn, forcar: bool = False):
     except Exception:
         pass
 
-    with open(CSV_PATH, "r", encoding="utf-8-sig") as f:
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             classificacao = row.get("Classificacao", "").strip()
@@ -641,6 +770,7 @@ def _carregar_csv(conn, forcar: bool = False):
 
 def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
     """Atualiza data/integrantes.csv com os valores e dados cadastrais vigentes no banco."""
+    csv_path = _obter_csv_path()
     try:
         rows = conn.execute("""
             SELECT tipo, beneficiario_nome, titular_nome, data_nascimento,
@@ -652,7 +782,7 @@ def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
         if not rows:
             return
 
-        with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
                 "Classificacao", "Nome", "Titular", "Nascimento",
@@ -716,6 +846,7 @@ def calcular_idade(data_nascimento: str | date | None, data_ref: date | None = N
 def obter_tabela_faixas() -> list[dict]:
     """Retorna todas as faixas etárias da tabela_faixas_etarias ordenadas por ordem crescente."""
     with get_connection() as conn:
+        _garantir_faixas_populada(conn)
         rows = conn.execute(
             "SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC"
         ).fetchall()
@@ -812,17 +943,42 @@ def recalcular_mensalidades_membros(conn_existente=None) -> int:
             return atualizados
 
 
-def atualizar_tabela_faixa(faixa_id: int, valor_privativo: float, valor_coletivo: float) -> None:
+def atualizar_tabela_faixa(faixa_id: int, valor_privativo: float, valor_coletivo: float, sync_git: bool = True) -> None:
     """Atualiza os preços de uma faixa etária específica e recalcula as mensalidades dos membros."""
     with get_connection() as conn:
+        _garantir_faixas_populada(conn)
+        _garantir_membros_populados(conn)
         conn.execute("""
             UPDATE tabela_faixas_etarias
             SET valor_privativo = ?, valor_coletivo = ?
             WHERE id = ?
         """, (valor_privativo, valor_coletivo, faixa_id))
         recalcular_mensalidades_membros(conn)
-        _sincronizar_csv_com_banco(conn)
-        _salvar_backup_precos(conn)
+        _sincronizar_csv_com_banco(conn, sync_git=False)
+        _salvar_backup_precos(conn, sync_git=False)
+    if sync_git:
+        _git_sync_background("data/integrantes.csv", "data/config_precos.json")
+
+
+def atualizar_tabela_faixas_lote(valores_editados: dict[int, tuple[float, float]]) -> int:
+    """
+    Atualiza todas as faixas etárias editadas em uma única transação atômica,
+    recalcula as mensalidades de todos os membros e dispara uma única sincronização Git.
+    """
+    with get_connection() as conn:
+        _garantir_faixas_populada(conn)
+        _garantir_membros_populados(conn)
+        for faixa_id, (valor_privativo, valor_coletivo) in valores_editados.items():
+            conn.execute("""
+                UPDATE tabela_faixas_etarias
+                SET valor_privativo = ?, valor_coletivo = ?
+                WHERE id = ?
+            """, (round(float(valor_privativo), 2), round(float(valor_coletivo), 2), int(faixa_id)))
+        count = recalcular_mensalidades_membros(conn)
+        _sincronizar_csv_com_banco(conn, sync_git=False)
+        _salvar_backup_precos(conn, sync_git=False)
+    _git_sync_background("data/integrantes.csv", "data/config_precos.json")
+    return count
 
 
 def reajustar_tabela_faixas_percentual(percentual: float) -> int:
@@ -832,6 +988,8 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
     Retorna o número de membros recalculados.
     """
     with get_connection() as conn:
+        _garantir_faixas_populada(conn)
+        _garantir_membros_populados(conn)
         faixas = conn.execute("SELECT * FROM tabela_faixas_etarias").fetchall()
         for f in faixas:
             novo_p = round(f["valor_privativo"] * (1 + percentual / 100), 2)
@@ -846,9 +1004,10 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
         conn.execute("DELETE FROM config_valores")
 
         count = recalcular_mensalidades_membros(conn)
-        _sincronizar_csv_com_banco(conn)
-        _salvar_backup_precos(conn)
-        return count
+        _sincronizar_csv_com_banco(conn, sync_git=False)
+        _salvar_backup_precos(conn, sync_git=False)
+    _git_sync_background("data/integrantes.csv", "data/config_precos.json")
+    return count
 
 
 # ─── CONSULTAS DE MEMBROS E MIGRAÇÃO ─────────────────────────────────────────
@@ -856,6 +1015,7 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
 def listar_titulares() -> list[dict]:
     """Retorna lista de todos os titulares distintos, ordenados alfabeticamente."""
     with get_connection() as conn:
+        _garantir_membros_populados(conn)
         rows = conn.execute("""
             SELECT DISTINCT titular_nome, data_nascimento, tipo_plano
             FROM membros
@@ -879,6 +1039,7 @@ def buscar_grupo_familiar(titular_nome: str) -> list[dict]:
     faixas = obter_tabela_faixas()
 
     with get_connection() as conn:
+        _garantir_membros_populados(conn)
         rows = conn.execute("""
             SELECT m.id, m.tipo, m.titular_nome, m.beneficiario_nome, m.grau_parentesco,
                    m.data_nascimento, m.faixa_etaria, m.tipo_plano, m.valor_mensalidade,
@@ -1126,6 +1287,7 @@ def _garantir_pdfs_solicitacoes_aprovadas(conn) -> None:
                     "UPDATE solicitacoes SET pdf_gerado = ? WHERE id = ?",
                     (novo_pdf, sol["id"])
                 )
+                conn.commit()
             except Exception as ex:
                 logger.error(f"Erro ao sintetizar PDF para solicitacao aprovada #{sol['id']}: {ex}")
     except Exception as e:
@@ -1268,6 +1430,9 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> bool:
 
             # 3. Tabela de faixas etárias Unimed
             rows_fx = c.execute("SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC").fetchall()
+            if len(rows_fx) < len(TABELA_FAIXAS_PADRAO):
+                logger.warning("Abortando _salvar_backup_precos: tabela_faixas_etarias está vazia ou incompleta.")
+                return False
             faixas = [
                 {
                     "id": r["id"],
@@ -1415,34 +1580,56 @@ def _carregar_backup_precos(conn) -> bool:
                         """, (v_vidas, dt_tut, t_nome))
 
         # 3. Restaura Tabela de faixas etárias Unimed (com comparação de timestamp)
+        count_fx_db = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
+        if count_fx_db < len(TABELA_FAIXAS_PADRAO):
+            conn.execute("DELETE FROM tabela_faixas_etarias")
+            try:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'tabela_faixas_etarias'")
+            except Exception:
+                pass
+            for item in TABELA_FAIXAS_PADRAO:
+                conn.execute("""
+                    INSERT INTO tabela_faixas_etarias
+                    (faixa_etaria, idade_min, idade_max, valor_privativo, valor_coletivo, ordem)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, item)
+
         faixas_list = data.get("tabela_faixas_etarias", [])
         if faixas_list:
             for fx in faixas_list:
                 fx_id = fx.get("id")
+                ordem = fx.get("ordem")
                 vp = float(fx.get("valor_privativo", 0.0))
                 vc = float(fx.get("valor_coletivo", 0.0))
                 faixa_etaria = fx.get("faixa_etaria")
+
+                row_db = None
                 if fx_id:
                     row_db = conn.execute(
-                        "SELECT valor_privativo, valor_coletivo FROM tabela_faixas_etarias WHERE id = ?",
+                        "SELECT id, valor_privativo, valor_coletivo FROM tabela_faixas_etarias WHERE id = ?",
                         (fx_id,)
                     ).fetchone()
-                    if row_db:
-                        # Só sobrescreve se valores diferirem e o JSON for mais recente
-                        vals_differ = (abs(float(row_db["valor_privativo"]) - vp) > 0.001 or
-                                       abs(float(row_db["valor_coletivo"]) - vc) > 0.001)
-                        if vals_differ and json_ultima_att:
-                            conn.execute("""
-                                UPDATE tabela_faixas_etarias
-                                SET valor_privativo = ?, valor_coletivo = ?
-                                WHERE id = ?
-                            """, (vp, vc, fx_id))
-                elif faixa_etaria:
-                    conn.execute("""
-                        UPDATE tabela_faixas_etarias
-                        SET valor_privativo = ?, valor_coletivo = ?
-                        WHERE faixa_etaria = ?
-                    """, (vp, vc, faixa_etaria))
+                if not row_db and ordem is not None:
+                    row_db = conn.execute(
+                        "SELECT id, valor_privativo, valor_coletivo FROM tabela_faixas_etarias WHERE ordem = ?",
+                        (ordem,)
+                    ).fetchone()
+                if not row_db and faixa_etaria:
+                    row_db = conn.execute(
+                        "SELECT id, valor_privativo, valor_coletivo FROM tabela_faixas_etarias WHERE faixa_etaria = ?",
+                        (faixa_etaria,)
+                    ).fetchone()
+
+                if row_db:
+                    # Só sobrescreve se valores diferirem e o JSON for mais recente
+                    vals_differ = (abs(float(row_db["valor_privativo"]) - vp) > 0.001 or
+                                   abs(float(row_db["valor_coletivo"]) - vc) > 0.001)
+                    if vals_differ and json_ultima_att:
+                        conn.execute("""
+                            UPDATE tabela_faixas_etarias
+                            SET valor_privativo = ?, valor_coletivo = ?
+                            WHERE id = ?
+                        """, (vp, vc, row_db["id"]))
 
         # 4. Restaura config_valores se houver (com comparação de timestamp)
         cv_list = data.get("config_valores", [])
@@ -1673,6 +1860,7 @@ def listar_todos_membros() -> list[dict]:
     faixas = obter_tabela_faixas()
 
     with get_connection() as conn:
+        _garantir_membros_populados(conn)
         rows = conn.execute("""
             SELECT m.id, m.tipo, m.titular_nome, m.beneficiario_nome,
                    m.grau_parentesco, m.data_nascimento, m.faixa_etaria,
@@ -2446,6 +2634,7 @@ def _garantir_pdfs_anuais_aprovadas(conn) -> None:
                     "UPDATE declaracoes_anuais SET pdf_gerado = ? WHERE id = ?",
                     (_gerar_pdf_anual_de_registro(dec), dec["id"])
                 )
+                conn.commit()
             except Exception as ex:
                 logger.error(f"Erro ao sintetizar PDF anual #{dec['id']}: {ex}")
     except Exception as e:
