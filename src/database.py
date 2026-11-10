@@ -1397,6 +1397,8 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
     e recalcula as mensalidades de todos os membros no banco de dados e CSV.
     Retorna o número de membros recalculados.
     """
+    if abs(percentual) < 1e-6:
+        return 0
     with get_connection() as conn:
         _garantir_faixas_populada(conn)
         _garantir_membros_populados(conn)
@@ -1413,6 +1415,33 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
         # Limpa customizações individuais obsoletas para que a tabela vigore
         conn.execute("DELETE FROM config_valores")
 
+        count = recalcular_mensalidades_membros(conn)
+        _sincronizar_csv_com_banco(conn, sync_git=False)
+        _salvar_backup_precos(conn, sync_git=False)
+    _git_sync_background("data/integrantes.csv", "data/config_precos.json")
+    return count
+
+
+def restaurar_tabela_faixas_padrao() -> int:
+    """
+    Restaura todas as faixas etárias para a tabela padrão original
+    (Privativo R$ 350 a R$ 2094, Coletivo R$ 250 a R$ 1496),
+    limpa customizações individuais e recalcula as mensalidades de todos os membros.
+    Retorna o total de integrantes recalculados.
+    """
+    with get_connection() as conn:
+        conn.execute("DELETE FROM tabela_faixas_etarias")
+        try:
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'tabela_faixas_etarias'")
+        except Exception:
+            pass
+        for item in TABELA_FAIXAS_PADRAO:
+            conn.execute("""
+                INSERT INTO tabela_faixas_etarias
+                (faixa_etaria, idade_min, idade_max, valor_privativo, valor_coletivo, ordem)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, item)
+        conn.execute("DELETE FROM config_valores")
         count = recalcular_mensalidades_membros(conn)
         _sincronizar_csv_com_banco(conn, sync_git=False)
         _salvar_backup_precos(conn, sync_git=False)

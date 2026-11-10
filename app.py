@@ -75,6 +75,7 @@ try:
         atualizar_tabela_faixa,
         atualizar_tabela_faixas_lote,
         reajustar_tabela_faixas_percentual,
+        restaurar_tabela_faixas_padrao,
         recalcular_mensalidades_membros,
         verificar_migracoes_grupo,
         listar_todas_migracoes,
@@ -183,6 +184,7 @@ except ImportError:
         atualizar_tabela_faixa,
         atualizar_tabela_faixas_lote,
         reajustar_tabela_faixas_percentual,
+        restaurar_tabela_faixas_padrao,
         recalcular_mensalidades_membros,
         verificar_migracoes_grupo,
         listar_todas_migracoes,
@@ -2632,8 +2634,16 @@ elif modulo == "🔒 Área Restrita (Administração)":
                 if _msg_tab_ok:
                     st.success(_msg_tab_ok)
 
-                # Reajuste geral da tabela em percentual
-                with st.expander("📈 Aplicar Reajuste Percentual Geral na Tabela (%)", expanded=False):
+                # Versão de controle de cache dos widgets para forçar recarga imediata no navegador
+                if "_tabela_faixas_versao" not in st.session_state:
+                    st.session_state["_tabela_faixas_versao"] = 0
+                tab_v = st.session_state["_tabela_faixas_versao"]
+
+                faixas_atuais = obter_tabela_faixas()
+
+                # Reajuste geral da tabela em percentual (destacado e responsivo)
+                with st.expander("📈 Aplicar Reajuste Percentual Geral na Tabela (%)", expanded=True):
+                    st.caption("Aplica uma correção percentual linear sobre todas as 10 faixas etárias e recalcula automaticamente toda a base de membros.")
                     col_p_in, col_p_btn = st.columns([2, 1.2])
                     with col_p_in:
                         perc_tab = st.number_input(
@@ -2641,25 +2651,40 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             value=0.0,
                             step=0.1,
                             format="%.2f",
-                            key="perc_reaj_tabela_geral",
-                            help="Aplica o percentual em todas as faixas (Privativo e Coletivo) e recalcula todos os membros da base.",
+                            key=f"perc_reaj_tabela_geral_v{tab_v}",
+                            help="Ex: 4.22 para reajuste de 4,22%, ou -5.00 para redução de 5%.",
                         )
                     with col_p_btn:
                         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                        if st.button("Aplicar na Tabela", type="primary", key="btn_reaj_tabela_geral", use_container_width=True):
-                            if perc_tab == 0:
-                                st.warning("Informe um percentual diferente de zero.")
-                            else:
-                                tot_recalc = reajustar_tabela_faixas_percentual(perc_tab)
-                                for _k in list(st.session_state.keys()):
-                                    if str(_k).startswith(("fx_p_", "fx_c_", "reaj_", "perc_reaj_tabela_geral")):
-                                        st.session_state.pop(_k, None)
-                                st.session_state["_msg_sucesso_tabela"] = (
-                                    f"✅ Reajuste de {perc_tab:+.2f}% aplicado a todas as faixas! {tot_recalc} integrante(s) recalculados."
-                                )
-                                st.rerun()
+                        btn_aplicar_perc = st.button("Aplicar na Tabela", type="primary", key=f"btn_reaj_tabela_geral_v{tab_v}", use_container_width=True)
 
-                faixas_atuais = obter_tabela_faixas()
+                    if abs(perc_tab) > 1e-6 and faixas_atuais:
+                        fx0 = faixas_atuais[0]
+                        fx_last = faixas_atuais[-1]
+                        p0_prev = round(fx0["valor_privativo"] * (1 + perc_tab / 100), 2)
+                        c0_prev = round(fx0["valor_coletivo"] * (1 + perc_tab / 100), 2)
+                        plast_prev = round(fx_last["valor_privativo"] * (1 + perc_tab / 100), 2)
+                        clast_prev = round(fx_last["valor_coletivo"] * (1 + perc_tab / 100), 2)
+                        st.info(
+                            f"💡 **Simulação ({perc_tab:+.2f}%):** "
+                            f"Faixa **{fx0['faixa_etaria']}**: P {formatar_moeda(fx0['valor_privativo'])} ➔ **{formatar_moeda(p0_prev)}** | C {formatar_moeda(fx0['valor_coletivo'])} ➔ **{formatar_moeda(c0_prev)}** • "
+                            f"Faixa **{fx_last['faixa_etaria']}**: P {formatar_moeda(fx_last['valor_privativo'])} ➔ **{formatar_moeda(plast_prev)}** | C {formatar_moeda(fx_last['valor_coletivo'])} ➔ **{formatar_moeda(clast_prev)}**"
+                        )
+
+                    if btn_aplicar_perc:
+                        if abs(perc_tab) < 1e-6:
+                            st.warning("Informe um percentual diferente de zero.")
+                        else:
+                            tot_recalc = reajustar_tabela_faixas_percentual(perc_tab)
+                            nova_v = tab_v + 1
+                            st.session_state["_tabela_faixas_versao"] = nova_v
+                            for _k in list(st.session_state.keys()):
+                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
+                                    st.session_state.pop(_k, None)
+                            st.session_state["_msg_sucesso_tabela"] = (
+                                f"✅ Reajuste de {perc_tab:+.2f}% aplicado com sucesso a todas as 10 faixas! {tot_recalc} integrante(s) recalculados."
+                            )
+                            st.rerun()
 
                 st.markdown("---")
                 st.markdown("##### ✏️ Edição dos Valores por Faixa Etária")
@@ -2680,7 +2705,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             min_value=0.0,
                             step=1.0,
                             format="%.2f",
-                            key=f"fx_p_{fx['id']}",
+                            key=f"fx_p_{fx['id']}_v{tab_v}",
                         )
                     with col_fx_c:
                         novo_c = st.number_input(
@@ -2689,20 +2714,39 @@ elif modulo == "🔒 Área Restrita (Administração)":
                             min_value=0.0,
                             step=1.0,
                             format="%.2f",
-                            key=f"fx_c_{fx['id']}",
+                            key=f"fx_c_{fx['id']}_v{tab_v}",
                         )
                     valores_editados[fx["id"]] = (novo_p, novo_c)
 
                 st.markdown("")
-                if st.button("💾 Salvar Alterações na Tabela e Recalcular Todos os Integrantes", type="primary", use_container_width=True, key="btn_save_all_faixas"):
-                    atualizar_tabela_faixas_lote(valores_editados)
-                    for _k in list(st.session_state.keys()):
-                        if str(_k).startswith(("fx_p_", "fx_c_", "reaj_")):
-                            st.session_state.pop(_k, None)
-                    st.session_state["_msg_sucesso_tabela"] = (
-                        "✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados."
-                    )
-                    st.rerun()
+                col_save_btn, col_reset_btn = st.columns([2.5, 1])
+                with col_save_btn:
+                    if st.button("💾 Salvar Alterações na Tabela e Recalcular Todos os Integrantes", type="primary", use_container_width=True, key=f"btn_save_all_faixas_v{tab_v}"):
+                        atualizar_tabela_faixas_lote(valores_editados)
+                        nova_v = tab_v + 1
+                        st.session_state["_tabela_faixas_versao"] = nova_v
+                        for _k in list(st.session_state.keys()):
+                            if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
+                                st.session_state.pop(_k, None)
+                        st.session_state["_msg_sucesso_tabela"] = (
+                            "✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados."
+                        )
+                        st.rerun()
+
+                with col_reset_btn:
+                    with st.expander("🔄 Restaurar Padrão", expanded=False):
+                        st.caption("Restaura os valores oficiais padrão (R$ 350 a R$ 2.094) e recalcula todos os integrantes.")
+                        if st.button("Confirmar Restauração", key=f"btn_reset_padrao_v{tab_v}", use_container_width=True):
+                            tot_rst = restaurar_tabela_faixas_padrao()
+                            nova_v = tab_v + 1
+                            st.session_state["_tabela_faixas_versao"] = nova_v
+                            for _k in list(st.session_state.keys()):
+                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
+                                    st.session_state.pop(_k, None)
+                            st.session_state["_msg_sucesso_tabela"] = (
+                                f"✅ Tabela padrão original restaurada com sucesso! {tot_rst} integrante(s) recalculados."
+                            )
+                            st.rerun()
 
             with subtab_membros:
                 membros = listar_todos_membros()
