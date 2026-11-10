@@ -49,6 +49,19 @@ Aplicação web em Streamlit para gerenciamento e emissão automatizada de Decla
 
 ## 4. Histórico de Segurança e Disponibilidade
 
+* **10/11/2026 — Correção Definitiva do Reajuste Percentual da Tabela de Preços e Sincronização:**
+  - **Causa raiz da não aplicação do reajuste percentual:**
+    1. **Comportamento assíncrono de `st.number_input` sem `st.form`:** No frontend do Streamlit, quando o usuário digitava o percentual (ex: `4.22`) no campo de entrada e clicava diretamente no botão sem antes pressionar Enter ou desfocar o campo (blur), o evento de clique era despachado com o valor anterior do widget (`0.0`). Como consequência, o backend avaliava `abs(perc_tab) < 1e-6` e não executava `reajustar_tabela_faixas_percentual()`.
+    2. **Ausência de visualização tabular direta:** A aba continha apenas 20 campos de entrada individuais de edição manual, sem uma tabela formatada de consulta imediata dos valores vigentes, gerando incerteza visual sobre quais valores estavam ativos.
+    3. **Ambiguidade de base de cálculo (cumulativa vs. contratual):** O recálculo percentual aplicava o fator linearmente sobre os valores gravados no banco. Caso a tabela já estivesse com valores reajustados, uma nova tentativa aplicava juros compostos indesejados.
+    4. **Dessincronização entre arquivos de runtime e sementes do repositório:** `_semear_arquivos_runtime()` só copiava sementes do repositório quando o arquivo em runtime não existia; se o repositório recebia commits mais novos via Git, o arquivo de runtime persistia com dados antigos.
+  - **Solução implementada:**
+    1. **Encapsulamento atômico em `st.form`:** O formulário de reajuste percentual agora utiliza `st.form("form_reajuste_tabela_geral_v{tab_v}")` com `st.form_submit_button()`, garantindo que o valor digitado seja despachado de forma 100% confiável e atômica para o servidor Streamlit.
+    2. **Tabela oficial de visualização imediata (`st.dataframe`):** Exibição clara e destacada de todas as 10 faixas etárias formatadas em moeda (R$ Privativo e Coletivo).
+    3. **Seletor de base de cálculo com idempotência:** Opção de aplicar o percentual sobre a **Tabela Padrão Contratual (R$ 350 a R$ 2.094)** [Recomendado] ou sobre os **Valores Atualmente Vigentes**. Com a base padrão, aplicar 4,22% resulta deterministicamente em R$ 364,77 / R$ 260,55 até R$ 2.182,37 / R$ 1.559,13.
+    4. **Sincronização bidirecional runtime ↔ repositório:** Gravação simultânea no runtime e na semente do repositório, com comparação de timestamps mais recentes em `_semear_arquivos_runtime()` e `_carregar_backup_precos()`.
+    5. **Isolamento de formulários:** A edição manual por faixa foi separada em um `st.form` próprio dentro de expander, impossibilitando conflitos entre reajuste geral e edições pontuais.
+
 * **10/11/2026 — Resolução Completa da Falha em Cascata & Desbloqueio no Streamlit Cloud:**
   - **Causa raiz dos problemas em cascata:**
     1. **Bloqueio de `git pull` na plataforma:** O contêiner do Streamlit Community Cloud mantinha arquivos modificados em seu diretório de trabalho local (`/mount/src/ansef-declaracoes/data/`). Sempre que novos commits em `origin/main` tocavam nesses mesmos caminhos com SHAs distintos, o Git abortava o pull (`error: Your local changes to the following files would be overwritten by merge`). O contêiner permanecia congelado no commit `c661213` e nunca ativava as correções enviadas ao GitHub.

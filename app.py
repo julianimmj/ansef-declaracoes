@@ -2626,7 +2626,7 @@ elif modulo == "🔒 Área Restrita (Administração)":
             with subtab_faixas:
                 st.markdown("##### 🏷️ Preços por Faixa Etária (Planos Privativo e Coletivo)")
                 st.caption(
-                    "Esta tabela define os valores base por faixa etária. "
+                    "Esta tabela define os valores base por faixa etária da UNIMED. "
                     "Qualquer correção salva aqui recalcula automaticamente as mensalidades de todos os associados e dependentes."
                 )
 
@@ -2641,112 +2641,143 @@ elif modulo == "🔒 Área Restrita (Administração)":
 
                 faixas_atuais = obter_tabela_faixas()
 
-                # Reajuste geral da tabela em percentual (destacado e responsivo)
-                with st.expander("📈 Aplicar Reajuste Percentual Geral na Tabela (%)", expanded=True):
-                    st.caption("Aplica uma correção percentual linear sobre todas as 10 faixas etárias e recalcula automaticamente toda a base de membros.")
-                    col_p_in, col_p_btn = st.columns([2, 1.2])
+                # ── 1. TABELA RESUMO OFICIAL (VISUALIZAÇÃO IMEDIATA) ───────────────
+                dados_df = []
+                for fx in faixas_atuais:
+                    idade_desc = f"{fx['idade_min']} a {fx['idade_max']} anos" if fx["idade_max"] < 120 else "A partir de 59 anos"
+                    dados_df.append({
+                        "Faixa Etária": fx["faixa_etaria"],
+                        "Idades Abrangidas": idade_desc,
+                        "Plano Privativo (P)": formatar_moeda(fx["valor_privativo"]),
+                        "Plano Coletivo (C)": formatar_moeda(fx["valor_coletivo"]),
+                    })
+                df_faixas = pd.DataFrame(dados_df)
+                st.dataframe(df_faixas, use_container_width=True, hide_index=True)
+
+                # ── 2. FORMULÁRIO DE REAJUSTE PERCENTUAL ATÔMICO ────────────────────
+                st.markdown("##### 📈 Aplicar Reajuste Percentual na Tabela")
+                with st.form(f"form_reajuste_tabela_geral_v{tab_v}"):
+                    st.caption(
+                        "Informe a porcentagem de reajuste desejada e selecione a base de cálculo. "
+                        "O recálculo de todas as mensalidades e a persistência em banco e arquivo ocorrem imediatamente."
+                    )
+                    col_p_in, col_p_opt = st.columns([1.5, 2])
                     with col_p_in:
                         perc_tab = st.number_input(
-                            "Percentual de Reajuste da Tabela (%)",
+                            "Percentual de Reajuste (%)",
                             value=0.0,
-                            step=0.1,
+                            step=0.01,
                             format="%.2f",
-                            key=f"perc_reaj_tabela_geral_v{tab_v}",
-                            help="Ex: 4.22 para reajuste de 4,22%, ou -5.00 para redução de 5%.",
+                            help="Ex: 4.22 para reajuste de +4,22%, ou -5.00 para redução de 5%.",
+                            key=f"perc_input_v{tab_v}",
                         )
-                    with col_p_btn:
-                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                        btn_aplicar_perc = st.button("Aplicar na Tabela", type="primary", key=f"btn_reaj_tabela_geral_v{tab_v}", use_container_width=True)
+                    with col_p_opt:
+                        modo_base = st.radio(
+                            "Base de Cálculo do Reajuste:",
+                            [
+                                "Tabela Padrão Contratual (R$ 350 a R$ 2.094) [Recomendado]",
+                                "Valores Atualmente Vigentes na Tabela Acima (Cumulativo)",
+                            ],
+                            index=0,
+                            help="A Base Contratual aplica o percentual sobre os valores contratuais originais (350 a 2094), garantindo precisão e idempotência. Cumulativo aplica sobre os valores atuais.",
+                        )
 
-                    if abs(perc_tab) > 1e-6 and faixas_atuais:
-                        fx0 = faixas_atuais[0]
-                        fx_last = faixas_atuais[-1]
-                        p0_prev = round(fx0["valor_privativo"] * (1 + perc_tab / 100), 2)
-                        c0_prev = round(fx0["valor_coletivo"] * (1 + perc_tab / 100), 2)
-                        plast_prev = round(fx_last["valor_privativo"] * (1 + perc_tab / 100), 2)
-                        clast_prev = round(fx_last["valor_coletivo"] * (1 + perc_tab / 100), 2)
-                        st.info(
-                            f"💡 **Simulação ({perc_tab:+.2f}%):** "
-                            f"Faixa **{fx0['faixa_etaria']}**: P {formatar_moeda(fx0['valor_privativo'])} ➔ **{formatar_moeda(p0_prev)}** | C {formatar_moeda(fx0['valor_coletivo'])} ➔ **{formatar_moeda(c0_prev)}** • "
-                            f"Faixa **{fx_last['faixa_etaria']}**: P {formatar_moeda(fx_last['valor_privativo'])} ➔ **{formatar_moeda(plast_prev)}** | C {formatar_moeda(fx_last['valor_coletivo'])} ➔ **{formatar_moeda(clast_prev)}**"
-                        )
+                    btn_aplicar_perc = st.form_submit_button(
+                        "📈 Aplicar Reajuste Percentual na Tabela Oficial",
+                        type="primary",
+                        use_container_width=True,
+                    )
 
                     if btn_aplicar_perc:
                         if abs(perc_tab) < 1e-6:
-                            st.warning("Informe um percentual diferente de zero.")
+                            st.error("⚠️ Informe um percentual diferente de zero para aplicar a correção.")
                         else:
-                            tot_recalc = reajustar_tabela_faixas_percentual(perc_tab)
+                            usar_base_padrao = modo_base.startswith("Tabela Padrão")
+                            tot_recalc = reajustar_tabela_faixas_percentual(perc_tab, base_original=usar_base_padrao)
                             nova_v = tab_v + 1
                             st.session_state["_tabela_faixas_versao"] = nova_v
                             for _k in list(st.session_state.keys()):
-                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
+                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_input_")):
                                     st.session_state.pop(_k, None)
+                            
+                            faixas_novas = obter_tabela_faixas()
+                            fx0_n = faixas_novas[0]
+                            fx_last_n = faixas_novas[-1]
+                            base_txt = "Tabela Padrão Contratual" if usar_base_padrao else "Valores Anteriores"
                             st.session_state["_msg_sucesso_tabela"] = (
-                                f"✅ Reajuste de {perc_tab:+.2f}% aplicado com sucesso a todas as 10 faixas! {tot_recalc} integrante(s) recalculados."
+                                f"✅ Reajuste de {perc_tab:+.2f}% aplicado com sucesso sobre a {base_txt}! "
+                                f"{tot_recalc} integrante(s) recalculados. "
+                                f"Novos valores vigentes: Faixa 0–18: {formatar_moeda(fx0_n['valor_privativo'])} (P) / {formatar_moeda(fx0_n['valor_coletivo'])} (C) • "
+                                f"Faixa 59+: {formatar_moeda(fx_last_n['valor_privativo'])} (P) / {formatar_moeda(fx_last_n['valor_coletivo'])} (C)."
                             )
                             st.rerun()
 
                 st.markdown("---")
-                st.markdown("##### ✏️ Edição dos Valores por Faixa Etária")
 
-                valores_editados = {}
-                for fx in faixas_atuais:
-                    col_fx_nome, col_fx_p, col_fx_c = st.columns([2.5, 2, 2])
-                    with col_fx_nome:
-                        idade_limite = f"{fx['idade_min']} a {fx['idade_max']} anos" if fx["idade_max"] < 120 else "A partir de 59 anos"
-                        st.markdown(
-                            f"**{fx['faixa_etaria']}**<br><small style='color:#666;'>{idade_limite}</small>",
-                            unsafe_allow_html=True,
-                        )
-                    with col_fx_p:
-                        novo_p = st.number_input(
-                            "Valor Privativo (R$)",
-                            value=float(fx["valor_privativo"]),
-                            min_value=0.0,
-                            step=1.0,
-                            format="%.2f",
-                            key=f"fx_p_{fx['id']}_v{tab_v}",
-                        )
-                    with col_fx_c:
-                        novo_c = st.number_input(
-                            "Valor Coletivo (R$)",
-                            value=float(fx["valor_coletivo"]),
-                            min_value=0.0,
-                            step=1.0,
-                            format="%.2f",
-                            key=f"fx_c_{fx['id']}_v{tab_v}",
-                        )
-                    valores_editados[fx["id"]] = (novo_p, novo_c)
+                # ── 3. AJUSTE MANUAL POR FAIXA ETÁRIA (FORMULÁRIO SEPARADO) ─────────
+                with st.expander("✏️ Edição Manual por Faixa Etária (Ajuste Individual)", expanded=False):
+                    st.caption("Permite alterar manualmente os valores de faixas específicas sem aplicar regra percentual geral.")
+                    with st.form(f"form_edicao_manual_v{tab_v}"):
+                        valores_editados = {}
+                        for fx in faixas_atuais:
+                            col_fx_nome, col_fx_p, col_fx_c = st.columns([2.5, 2, 2])
+                            with col_fx_nome:
+                                idade_limite = f"{fx['idade_min']} a {fx['idade_max']} anos" if fx["idade_max"] < 120 else "A partir de 59 anos"
+                                st.markdown(
+                                    f"**{fx['faixa_etaria']}**<br><small style='color:#666;'>{idade_limite}</small>",
+                                    unsafe_allow_html=True,
+                                )
+                            with col_fx_p:
+                                novo_p = st.number_input(
+                                    "Valor Privativo (R$)",
+                                    value=float(fx["valor_privativo"]),
+                                    min_value=0.0,
+                                    step=1.0,
+                                    format="%.2f",
+                                    key=f"fx_p_{fx['id']}_v{tab_v}",
+                                )
+                            with col_fx_c:
+                                novo_c = st.number_input(
+                                    "Valor Coletivo (R$)",
+                                    value=float(fx["valor_coletivo"]),
+                                    min_value=0.0,
+                                    step=1.0,
+                                    format="%.2f",
+                                    key=f"fx_c_{fx['id']}_v{tab_v}",
+                                )
+                            valores_editados[fx["id"]] = (novo_p, novo_c)
 
-                st.markdown("")
-                col_save_btn, col_reset_btn = st.columns([2.5, 1])
-                with col_save_btn:
-                    if st.button("💾 Salvar Alterações na Tabela e Recalcular Todos os Integrantes", type="primary", use_container_width=True, key=f"btn_save_all_faixas_v{tab_v}"):
-                        atualizar_tabela_faixas_lote(valores_editados)
-                        nova_v = tab_v + 1
-                        st.session_state["_tabela_faixas_versao"] = nova_v
-                        for _k in list(st.session_state.keys()):
-                            if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
-                                st.session_state.pop(_k, None)
-                        st.session_state["_msg_sucesso_tabela"] = (
-                            "✅ Tabela de faixas atualizada com sucesso! Todos os membros foram recalculados."
+                        btn_salvar_manual = st.form_submit_button(
+                            "💾 Salvar Edição Manual das Faixas e Recalcular Integrantes",
+                            type="secondary",
+                            use_container_width=True,
                         )
-                        st.rerun()
-
-                with col_reset_btn:
-                    with st.expander("🔄 Restaurar Padrão", expanded=False):
-                        st.caption("Restaura os valores oficiais padrão (R$ 350 a R$ 2.094) e recalcula todos os integrantes.")
-                        if st.button("Confirmar Restauração", key=f"btn_reset_padrao_v{tab_v}", use_container_width=True):
-                            tot_rst = restaurar_tabela_faixas_padrao()
+                        if btn_salvar_manual:
+                            atualizar_tabela_faixas_lote(valores_editados)
                             nova_v = tab_v + 1
                             st.session_state["_tabela_faixas_versao"] = nova_v
                             for _k in list(st.session_state.keys()):
-                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_reaj_tabela_geral")):
+                                if str(_k).startswith(("fx_p_", "fx_c_", "perc_input_")):
                                     st.session_state.pop(_k, None)
                             st.session_state["_msg_sucesso_tabela"] = (
-                                f"✅ Tabela padrão original restaurada com sucesso! {tot_rst} integrante(s) recalculados."
+                                "✅ Tabela de faixas atualizada manualmente com sucesso! Todos os membros foram recalculados."
                             )
                             st.rerun()
+
+                # ── 4. RESTAURAÇÃO DA TABELA PADRÃO ORIGINAL ────────────────────────
+                with st.expander("🔄 Restaurar Tabela Padrão Original (R$ 350 a R$ 2.094)", expanded=False):
+                    st.caption("Restaura os valores contratuais oficiais de referência (R$ 350,00 a R$ 2.094,00 para Privativo e R$ 250,00 a R$ 1.496,00 para Coletivo) e recalcula todos os integrantes.")
+                    if st.button("Confirmar Restauração para Tabela Padrão", key=f"btn_reset_padrao_v{tab_v}", use_container_width=True):
+                        tot_rst = restaurar_tabela_faixas_padrao()
+                        nova_v = tab_v + 1
+                        st.session_state["_tabela_faixas_versao"] = nova_v
+                        for _k in list(st.session_state.keys()):
+                            if str(_k).startswith(("fx_p_", "fx_c_", "perc_input_")):
+                                st.session_state.pop(_k, None)
+                        st.session_state["_msg_sucesso_tabela"] = (
+                            f"✅ Tabela padrão original restaurada com sucesso! {tot_rst} integrante(s) recalculados."
+                        )
+                        st.rerun()
 
             with subtab_membros:
                 membros = listar_todos_membros()

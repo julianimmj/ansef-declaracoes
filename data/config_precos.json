@@ -1,5 +1,5 @@
 {
-  "ultima_atualizacao": "2026-11-10T22:26:30.130851",
+  "ultima_atualizacao": "2026-11-10T19:57:35.823757",
   "config_uniodonto": {
     "valor_por_vida": 36.2,
     "data_atualizacao": "2026-09-14T23:21:29.385257"
@@ -8,22 +8,22 @@
     {
       "titular_nome": "Carlos Sergio Praciano P.",
       "vidas": 2,
-      "data_atualizacao": "2026-09-11 19:50:33"
+      "data_atualizacao": "2026-11-10 22:57:35"
     },
     {
       "titular_nome": "Francisco Sandin Martins",
       "vidas": 1,
-      "data_atualizacao": "2026-09-11 19:50:33"
+      "data_atualizacao": "2026-11-10 22:57:35"
     },
     {
       "titular_nome": "José Luis Cordeiro Marcheori",
       "vidas": 2,
-      "data_atualizacao": "2026-09-11 19:50:33"
+      "data_atualizacao": "2026-11-10 22:57:35"
     },
     {
       "titular_nome": "Marcio Carlos Rosa",
       "vidas": 5,
-      "data_atualizacao": "2026-09-11 19:50:33"
+      "data_atualizacao": "2026-11-10 22:57:35"
     }
   ],
   "tabela_faixas_etarias": [
@@ -32,8 +32,8 @@
       "faixa_etaria": "0 – 18 anos",
       "idade_min": 0,
       "idade_max": 18,
-      "valor_privativo": 364.77,
-      "valor_coletivo": 260.55,
+      "valor_privativo": 350.0,
+      "valor_coletivo": 250.0,
       "ordem": 1
     },
     {
@@ -41,8 +41,8 @@
       "faixa_etaria": "19 – 23 anos",
       "idade_min": 19,
       "idade_max": 23,
-      "valor_privativo": 429.39,
-      "valor_coletivo": 307.45,
+      "valor_privativo": 412.0,
+      "valor_coletivo": 295.0,
       "ordem": 2
     },
     {
@@ -50,8 +50,8 @@
       "faixa_etaria": "24 – 28 anos",
       "idade_min": 24,
       "idade_max": 28,
-      "valor_privativo": 495.05,
-      "valor_coletivo": 354.35,
+      "valor_privativo": 475.0,
+      "valor_coletivo": 340.0,
       "ordem": 3
     },
     {
@@ -59,8 +59,8 @@
       "faixa_etaria": "29 – 33 anos",
       "idade_min": 29,
       "idade_max": 33,
-      "valor_privativo": 536.73,
-      "valor_coletivo": 383.53,
+      "valor_privativo": 515.0,
+      "valor_coletivo": 368.0,
       "ordem": 4
     },
     {
@@ -68,8 +68,8 @@
       "faixa_etaria": "34 – 38 anos",
       "idade_min": 34,
       "idade_max": 38,
-      "valor_privativo": 566.96,
-      "valor_coletivo": 405.42,
+      "valor_privativo": 544.0,
+      "valor_coletivo": 389.0,
       "ordem": 5
     },
     {
@@ -77,8 +77,8 @@
       "faixa_etaria": "39 – 43 anos",
       "idade_min": 39,
       "idade_max": 43,
-      "valor_privativo": 653.46,
-      "valor_coletivo": 466.91,
+      "valor_privativo": 627.0,
+      "valor_coletivo": 448.0,
       "ordem": 6
     },
     {
@@ -86,8 +86,8 @@
       "faixa_etaria": "44 – 48 anos",
       "idade_min": 44,
       "idade_max": 48,
-      "valor_privativo": 893.17,
-      "valor_coletivo": 637.83,
+      "valor_privativo": 857.0,
+      "valor_coletivo": 612.0,
       "ordem": 7
     },
     {
@@ -95,8 +95,8 @@
       "faixa_etaria": "49 – 53 anos",
       "idade_min": 49,
       "idade_max": 53,
-      "valor_privativo": 1232.92,
-      "valor_coletivo": 880.66,
+      "valor_privativo": 1183.0,
+      "valor_coletivo": 845.0,
       "ordem": 8
     },
     {
@@ -104,8 +104,8 @@
       "faixa_etaria": "54 – 58 anos",
       "idade_min": 54,
       "idade_max": 58,
-      "valor_privativo": 1619.58,
-      "valor_coletivo": 1156.84,
+      "valor_privativo": 1554.0,
+      "valor_coletivo": 1110.0,
       "ordem": 9
     },
     {
@@ -113,8 +113,8 @@
       "faixa_etaria": "Acima de 59 anos",
       "idade_min": 59,
       "idade_max": 150,
-      "valor_privativo": 2182.37,
-      "valor_coletivo": 1559.13,
+      "valor_privativo": 2094.0,
+      "valor_coletivo": 1496.0,
       "ordem": 10
     }
   ],

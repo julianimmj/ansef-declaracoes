@@ -316,31 +316,44 @@ def _semear_arquivos_runtime() -> None:
 
     # 2. config_precos.json
     rt_precos = os.path.join(rt_dir, "config_precos.json")
-    if not os.path.exists(rt_precos) or os.path.getsize(rt_precos) < 50:
-        if os.path.exists(REPO_CONFIG_PRECOS_SEED_PATH):
-            try:
-                with open(REPO_CONFIG_PRECOS_SEED_PATH, "r", encoding="utf-8") as f:
-                    data_p = json.load(f)
-                att_str = str(data_p.get("ultima_atualizacao", ""))
-                fx_list = data_p.get("tabela_faixas_etarias", [])
-                # Ignora estado intermediário defeituoso gerado durante o incidente de 10/11 às 20:18/20:19
-                if att_str.startswith(("2026-11-10T20:18", "2026-11-10T20:19")) or len(fx_list) < len(TABELA_FAIXAS_PADRAO):
-                    data_p["ultima_atualizacao"] = "2026-09-25T16:40:26.748436"
-                    data_p["tabela_faixas_etarias"] = [
-                        {
-                            "id": idx,
-                            "faixa_etaria": item[0],
-                            "idade_min": item[1],
-                            "idade_max": item[2],
-                            "valor_privativo": float(item[3]),
-                            "valor_coletivo": float(item[4]),
-                            "ordem": item[5],
-                        }
-                        for idx, item in enumerate(TABELA_FAIXAS_PADRAO, start=1)
-                    ]
-                _escrever_texto_atomico(rt_precos, json.dumps(data_p, ensure_ascii=False, indent=2))
-            except Exception:
-                pass
+    deve_copiar_precos = not os.path.exists(rt_precos) or os.path.getsize(rt_precos) < 50
+    if not deve_copiar_precos and os.path.exists(REPO_CONFIG_PRECOS_SEED_PATH):
+        try:
+            with open(REPO_CONFIG_PRECOS_SEED_PATH, "r", encoding="utf-8") as _f_r:
+                _seed_p = json.load(_f_r)
+            with open(rt_precos, "r", encoding="utf-8") as _f_rt:
+                _rt_p = json.load(_f_rt)
+            _seed_att = str(_seed_p.get("ultima_atualizacao", ""))
+            _rt_att = str(_rt_p.get("ultima_atualizacao", ""))
+            if _seed_att and _seed_att >= _rt_att:
+                deve_copiar_precos = True
+        except Exception:
+            pass
+
+    if deve_copiar_precos and os.path.exists(REPO_CONFIG_PRECOS_SEED_PATH):
+        try:
+            with open(REPO_CONFIG_PRECOS_SEED_PATH, "r", encoding="utf-8") as f:
+                data_p = json.load(f)
+            att_str = str(data_p.get("ultima_atualizacao", ""))
+            fx_list = data_p.get("tabela_faixas_etarias", [])
+            # Ignora estado intermediário defeituoso gerado durante o incidente de 10/11 às 20:18/20:19
+            if att_str.startswith(("2026-11-10T20:18", "2026-11-10T20:19")) or len(fx_list) < len(TABELA_FAIXAS_PADRAO):
+                data_p["ultima_atualizacao"] = "2026-09-25T16:40:26.748436"
+                data_p["tabela_faixas_etarias"] = [
+                    {
+                        "id": idx,
+                        "faixa_etaria": item[0],
+                        "idade_min": item[1],
+                        "idade_max": item[2],
+                        "valor_privativo": float(item[3]),
+                        "valor_coletivo": float(item[4]),
+                        "ordem": item[5],
+                    }
+                    for idx, item in enumerate(TABELA_FAIXAS_PADRAO, start=1)
+                ]
+            _escrever_texto_atomico(rt_precos, json.dumps(data_p, ensure_ascii=False, indent=2))
+        except Exception:
+            pass
 
     # 3. solicitacoes_backup.json
     rt_solic = os.path.join(rt_dir, "solicitacoes_backup.json")
@@ -1206,6 +1219,11 @@ def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
                 r["grau_parentesco"] or ""
             ])
         _escrever_texto_atomico(csv_path, buf.getvalue())
+        if REPO_CSV_SEED_PATH and REPO_CSV_SEED_PATH != csv_path:
+            try:
+                _escrever_texto_atomico(REPO_CSV_SEED_PATH, buf.getvalue())
+            except Exception:
+                pass
     except Exception as e:
         logger.error(f"Erro ao sincronizar CSV: {e}")
     else:
@@ -1391,10 +1409,17 @@ def atualizar_tabela_faixas_lote(valores_editados: dict[int, tuple[float, float]
     return count
 
 
-def reajustar_tabela_faixas_percentual(percentual: float) -> int:
+def reajustar_tabela_faixas_percentual(percentual: float, base_original: bool = True) -> int:
     """
     Aplica reajuste percentual sobre todas as faixas na tabela_faixas_etarias
     e recalcula as mensalidades de todos os membros no banco de dados e CSV.
+    
+    Parâmetros:
+    - percentual: percentual de reajuste (ex: 4.22 para +4,22%).
+    - base_original: se True (padrão), calcula o percentual a partir da tabela padrão oficial
+      de referência (R$ 350 a R$ 2.094), garantindo precisão e idempotência;
+      se False, calcula cumulativamente a partir dos valores atuais vigentes no banco.
+    
     Retorna o número de membros recalculados.
     """
     if abs(percentual) < 1e-6:
@@ -1402,15 +1427,27 @@ def reajustar_tabela_faixas_percentual(percentual: float) -> int:
     with get_connection() as conn:
         _garantir_faixas_populada(conn)
         _garantir_membros_populados(conn)
-        faixas = conn.execute("SELECT * FROM tabela_faixas_etarias").fetchall()
-        for f in faixas:
-            novo_p = round(f["valor_privativo"] * (1 + percentual / 100), 2)
-            novo_c = round(f["valor_coletivo"] * (1 + percentual / 100), 2)
-            conn.execute("""
-                UPDATE tabela_faixas_etarias
-                SET valor_privativo = ?, valor_coletivo = ?
-                WHERE id = ?
-            """, (novo_p, novo_c, f["id"]))
+
+        if base_original:
+            for item in TABELA_FAIXAS_PADRAO:
+                faixa_nome, id_min, id_max, vp_padrao, vc_padrao, ordem = item
+                novo_p = round(vp_padrao * (1 + percentual / 100), 2)
+                novo_c = round(vc_padrao * (1 + percentual / 100), 2)
+                conn.execute("""
+                    UPDATE tabela_faixas_etarias
+                    SET valor_privativo = ?, valor_coletivo = ?
+                    WHERE ordem = ?
+                """, (novo_p, novo_c, ordem))
+        else:
+            faixas = conn.execute("SELECT * FROM tabela_faixas_etarias").fetchall()
+            for f in faixas:
+                novo_p = round(f["valor_privativo"] * (1 + percentual / 100), 2)
+                novo_c = round(f["valor_coletivo"] * (1 + percentual / 100), 2)
+                conn.execute("""
+                    UPDATE tabela_faixas_etarias
+                    SET valor_privativo = ?, valor_coletivo = ?
+                    WHERE id = ?
+                """, (novo_p, novo_c, f["id"]))
 
         # Limpa customizações individuais obsoletas para que a tabela vigore
         conn.execute("DELETE FROM config_valores")
@@ -2016,6 +2053,11 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> bool:
             }
 
             _escrever_texto_atomico(caminho_precos, json.dumps(payload, ensure_ascii=False, indent=2))
+            if REPO_CONFIG_PRECOS_SEED_PATH and REPO_CONFIG_PRECOS_SEED_PATH != caminho_precos:
+                try:
+                    _escrever_texto_atomico(REPO_CONFIG_PRECOS_SEED_PATH, json.dumps(payload, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
             return True
 
         if conn:
@@ -2044,8 +2086,26 @@ def _carregar_backup_precos(conn) -> bool:
         return False
 
     try:
-        with open(caminho_precos, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = None
+        if os.path.exists(caminho_precos):
+            try:
+                with open(caminho_precos, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = None
+
+        if os.path.exists(REPO_CONFIG_PRECOS_SEED_PATH):
+            try:
+                with open(REPO_CONFIG_PRECOS_SEED_PATH, "r", encoding="utf-8") as f_repo:
+                    repo_data = json.load(f_repo)
+                repo_att = str(repo_data.get("ultima_atualizacao", ""))
+                curr_att = str(data.get("ultima_atualizacao", "")) if data else ""
+                if not data or (repo_att and repo_att > curr_att):
+                    data = repo_data
+                    _escrever_texto_atomico(caminho_precos, json.dumps(data, ensure_ascii=False, indent=2))
+            except Exception:
+                pass
+
         if not data or not isinstance(data, dict):
             return False
 
