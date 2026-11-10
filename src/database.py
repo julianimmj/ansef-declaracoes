@@ -23,7 +23,7 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-_DB_SCHEMA_VERSION = "2026-11-10-v4"
+_DB_SCHEMA_VERSION = "2026-11-10-v5"
 
 # Diretório do repositório e cópias "semente" versionadas no Git (somente leitura em runtime).
 # NUNCA são escritas diretamente em tempo de execução no Streamlit Cloud para jamais sujar
@@ -266,7 +266,7 @@ def _escrever_texto_atomico(caminho: str, conteudo: str, encoding: str = "utf-8"
 
 def _caminho_runtime_dir() -> str:
     """Diretório de execução isolado fora da árvore do repositório Git."""
-    runtime_dir = os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime_v4")
+    runtime_dir = os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime_v5")
     os.makedirs(runtime_dir, exist_ok=True)
     return runtime_dir
 
@@ -494,10 +494,9 @@ def _banco_integro(db_path: str) -> bool:
         count_faixas = conn.execute("SELECT COUNT(*) FROM tabela_faixas_etarias").fetchone()[0]
         if count_faixas < len(TABELA_FAIXAS_PADRAO):
             return False
-        if os.path.exists(_obter_csv_path()):
-            count_membros = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
-            if count_membros == 0:
-                return False
+        count_titulares = conn.execute("SELECT COUNT(*) FROM membros WHERE UPPER(tipo) = 'TITULAR'").fetchone()[0]
+        if count_titulares < 17:
+            return False
         return True
     except sqlite3.OperationalError as e:
         msg = str(e).lower()
@@ -532,19 +531,28 @@ def _garantir_faixas_populada(conn) -> None:
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, item)
             _carregar_backup_precos(conn)
+            try:
+                conn.commit()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Aviso ao garantir faixas populadas: {e}")
 
 
 def _garantir_membros_populados(conn) -> None:
-    """Garante que a tabela membros nunca fique vazia se integrantes.csv existir."""
+    """Garante que a tabela membros nunca fique sem titulares ou incompleta (autorrecuperação imediata)."""
     try:
-        cnt = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
-        if cnt == 0 and os.path.exists(_obter_csv_path()):
+        cnt_titulares = conn.execute("SELECT COUNT(*) FROM membros WHERE UPPER(tipo) = 'TITULAR'").fetchone()[0]
+        cnt_total = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
+        if cnt_titulares < 17 or cnt_total < 30:
             _garantir_faixas_populada(conn)
             _carregar_csv(conn, forcar=True)
             padronizar_todos_nomes_banco(conn)
             recalcular_mensalidades_membros(conn)
+            try:
+                conn.commit()
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"Aviso ao garantir membros populados: {e}")
 
@@ -1238,7 +1246,21 @@ def obter_tabela_faixas() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM tabela_faixas_etarias ORDER BY ordem ASC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        faixas = [dict(r) for r in rows]
+        if len(faixas) < len(TABELA_FAIXAS_PADRAO):
+            return [
+                {
+                    "id": idx,
+                    "faixa_etaria": item[0],
+                    "idade_min": item[1],
+                    "idade_max": item[2],
+                    "valor_privativo": float(item[3]),
+                    "valor_coletivo": float(item[4]),
+                    "ordem": item[5],
+                }
+                for idx, item in enumerate(TABELA_FAIXAS_PADRAO, start=1)
+            ]
+        return faixas
 
 
 def determinar_faixa_etaria(idade: int | None) -> dict | None:
@@ -1410,7 +1432,27 @@ def listar_titulares() -> list[dict]:
             WHERE UPPER(tipo) = 'TITULAR'
             ORDER BY titular_nome
         """).fetchall()
-        return [dict(r) for r in rows]
+        resultado = [dict(r) for r in rows]
+        if not resultado:
+            vistos = set()
+            tits = []
+            for item in MEMBROS_PADRAO:
+                if item[0].upper() == "TITULAR" and item[1] not in vistos:
+                    vistos.add(item[1])
+                    dt_iso = ""
+                    if item[3]:
+                        try:
+                            dt_iso = datetime.strptime(item[3], "%d/%m/%Y").strftime("%Y-%m-%d")
+                        except Exception:
+                            dt_iso = item[3]
+                    tits.append({
+                        "titular_nome": item[1],
+                        "data_nascimento": dt_iso,
+                        "tipo_plano": item[5],
+                    })
+            tits.sort(key=lambda x: x["titular_nome"])
+            return tits
+        return resultado
 
 
 def buscar_grupo_familiar(titular_nome: str) -> list[dict]:
@@ -1484,6 +1526,60 @@ def buscar_grupo_familiar(titular_nome: str) -> list[dict]:
 
             resultado.append(d)
 
+        if not resultado:
+            for item in MEMBROS_PADRAO:
+                if item[2].strip().lower() == titular_nome.strip().lower():
+                    dt_iso = ""
+                    if item[3]:
+                        try:
+                            dt_iso = datetime.strptime(item[3], "%d/%m/%Y").strftime("%Y-%m-%d")
+                        except Exception:
+                            dt_iso = item[3]
+                    d = {
+                        "id": 0,
+                        "tipo": item[0].upper(),
+                        "titular_nome": item[2],
+                        "beneficiario_nome": item[1],
+                        "grau_parentesco": item[7],
+                        "data_nascimento": dt_iso,
+                        "faixa_etaria": item[4],
+                        "tipo_plano": item[5],
+                        "valor_mensalidade": float(item[6]),
+                        "valor_vigente": float(item[6]),
+                    }
+                    idade = calcular_idade(dt_iso)
+                    d["idade_atual"] = idade
+                    fx_atual = None
+                    if idade is not None:
+                        for f in faixas:
+                            if f["idade_min"] <= idade <= f["idade_max"]:
+                                fx_atual = f
+                                break
+                    d["faixa_calculada"] = fx_atual["faixa_etaria"] if fx_atual else (d.get("faixa_etaria") or "N/A")
+                    fx_cad = identificar_faixa_por_rotulo(d.get("faixa_etaria", ""))
+                    tipo_plano = (d.get("tipo_plano") or "C").strip().upper()
+                    d["tipo_plano_nome"] = "Privativo" if tipo_plano == "P" else "Coletivo"
+                    if d.get("beneficiario_nome", "").strip().lower() == "nestor padilha":
+                        d["valor_faixa_atual"] = 0.0
+                        d["valor_faixa_anterior"] = 0.0
+                        d["migrou_faixa"] = False
+                        d["faixa_anterior"] = d.get("faixa_etaria") or ""
+                    elif fx_atual and fx_cad:
+                        d["faixa_anterior"] = fx_cad["faixa_etaria"]
+                        d["valor_faixa_anterior"] = (
+                            fx_cad["valor_privativo"] if tipo_plano == "P" else fx_cad["valor_coletivo"]
+                        )
+                        d["valor_faixa_atual"] = (
+                            fx_atual["valor_privativo"] if tipo_plano == "P" else fx_atual["valor_coletivo"]
+                        )
+                        d["migrou_faixa"] = fx_atual["ordem"] > fx_cad["ordem"]
+                    else:
+                        d["migrou_faixa"] = False
+                        d["faixa_anterior"] = d.get("faixa_etaria") or ""
+                        d["valor_faixa_anterior"] = d.get("valor_mensalidade", 0.0)
+                        d["valor_faixa_atual"] = d.get("valor_mensalidade", 0.0)
+                    resultado.append(d)
+
         return resultado
 
 
@@ -1513,17 +1609,26 @@ def listar_todas_migracoes() -> list[dict]:
 def validar_nascimento_titular(titular_nome: str, data_nascimento: date) -> bool:
     """Verifica se a data de nascimento informada confere com o cadastro do titular."""
     with get_connection() as conn:
+        _garantir_membros_populados(conn)
         row = conn.execute("""
             SELECT data_nascimento FROM membros
             WHERE titular_nome = ? AND UPPER(tipo) = 'TITULAR'
             LIMIT 1
         """, (titular_nome,)).fetchone()
 
-        if not row or not row["data_nascimento"]:
-            return False
+        if row and row["data_nascimento"]:
+            dt_cadastro = row["data_nascimento"]
+            return dt_cadastro == data_nascimento.strftime("%Y-%m-%d")
 
-        dt_cadastro = row["data_nascimento"]
-        return dt_cadastro == data_nascimento.strftime("%Y-%m-%d")
+        # Fallback de emergência em MEMBROS_PADRAO
+        for item in MEMBROS_PADRAO:
+            if item[0].upper() == "TITULAR" and item[1].strip().lower() == titular_nome.strip().lower():
+                try:
+                    dt_exp = datetime.strptime(item[3], "%d/%m/%Y").date()
+                    return dt_exp == data_nascimento
+                except Exception:
+                    pass
+        return False
 
 
 # ─── BACKUP E PERSISTÊNCIA DE SOLICITAÇÕES ────────────────────────────────────

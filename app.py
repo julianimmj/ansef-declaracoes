@@ -21,7 +21,7 @@ if "src" in sys.modules:
         del sys.modules["src"]
 
 # Força reload de módulos desatualizados em caso de hot-reload ou nova versão após git pull
-_TARGET_SCHEMA_VERSION = "2026-11-10-v4"
+_TARGET_SCHEMA_VERSION = "2026-11-10-v5"
 for _mod_name in list(sys.modules.keys()):
     if _mod_name in ("src.database", "database", "src.auth", "auth", "src.git_sync", "git_sync", "src.email_service", "email_service", "src.pdf_generator", "pdf_generator", "src.utils", "utils"):
         _m = sys.modules.get(_mod_name)
