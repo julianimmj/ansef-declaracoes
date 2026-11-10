@@ -108,11 +108,11 @@ def run_tests():
     print(f"  [OK] Reajuste de 10% aplicado e salvo no JSON: novo valor = R$ {novo_perc:.2f}")
 
     print("\n--- 6. Testing Restoration on Fresh DB from config_precos.json ---")
-    # Remove banco SQLite para simular deploy/rebuild virgem
-    os.remove(test_db)
-    assert not os.path.exists(test_db)
+    # Configura um banco SQLite virgem para simular deploy/rebuild virgem
+    fresh_db = os.path.join(test_dir, "test_fresh_uniodonto.db")
+    os.environ["ANSEF_DB_PATH"] = fresh_db
     inicializar_banco()
-    assert os.path.exists(test_db)
+    assert os.path.exists(fresh_db)
     cfg_restaurada = obter_config_uniodonto()
     assert abs(cfg_restaurada["valor_por_vida"] - 46.75) < 0.01, f"Valor restaurado deve ser 46.75, obtido {cfg_restaurada['valor_por_vida']}"
     print(f"  [OK] Banco virgem restaurou perfeitamente o preço de R$ {cfg_restaurada['valor_por_vida']:.2f} do JSON!")

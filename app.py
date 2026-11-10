@@ -20,6 +20,22 @@ if "src" in sys.modules:
     if not str(mod_file).startswith(BASE_DIR) and not any(str(p).startswith(BASE_DIR) for p in mod_paths):
         del sys.modules["src"]
 
+# Força reload de módulos desatualizados em caso de hot-reload ou nova versão após git pull
+_TARGET_SCHEMA_VERSION = "2026-11-10-v4"
+for _mod_name in list(sys.modules.keys()):
+    if _mod_name in ("src.database", "database", "src.auth", "auth", "src.git_sync", "git_sync", "src.email_service", "email_service", "src.pdf_generator", "pdf_generator", "src.utils", "utils"):
+        _m = sys.modules.get(_mod_name)
+        if getattr(_m, "_DB_SCHEMA_VERSION", None) != _TARGET_SCHEMA_VERSION:
+            del sys.modules[_mod_name]
+
+# Limpeza automática e segura do working tree do Git no contêiner para garantir que pull nunca bloqueie
+try:
+    import subprocess
+    if os.path.exists(os.path.join(BASE_DIR, ".git")):
+        subprocess.run(["git", "checkout", "--", "data"], cwd=BASE_DIR, timeout=3, capture_output=True)
+except Exception:
+    pass
+
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 if SRC_DIR not in sys.path:
@@ -260,16 +276,16 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
-# Inicializa o banco de dados exatamente uma vez por ciclo de vida do servidor
+# Inicializa o banco de dados exatamente uma vez por versão/ciclo de vida do servidor
 @st.cache_resource
-def _garantir_inicializacao_banco():
+def _garantir_inicializacao_banco(_schema_ver: str):
     try:
         inicializar_banco()
     except Exception:
         pass
     return True
 
-_garantir_inicializacao_banco()
+_garantir_inicializacao_banco(_TARGET_SCHEMA_VERSION)
 try:
     if not obter_tabela_faixas() or not listar_titulares():
         inicializar_banco()

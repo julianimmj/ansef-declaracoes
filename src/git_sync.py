@@ -104,6 +104,29 @@ def _obter_info_arquivo(filepath: str, token: str) -> tuple[str | None, str | No
     return None, None
 
 
+def _resolver_caminho_local(filepath: str) -> str:
+    """Resolve o caminho local de runtime (ou do repositório como fallback) para sincronização com o GitHub."""
+    norm = filepath.replace("\\", "/").strip("/")
+    try:
+        try:
+            import src.database as _db
+        except ImportError:
+            import database as _db
+        mapa = {
+            "data/config_precos.json": _db._obter_config_precos_path(),
+            "data/solicitacoes_backup.json": _db._obter_solicitacoes_backup_path(),
+            "data/integrantes.csv": _db._obter_csv_path(),
+            "data/declaracoes_anuais_backup.json": _db._obter_anuais_backup_path(),
+            "data/emails_pagamentos_backup.json": _db._obter_emails_pag_backup_path(),
+        }
+        if norm in mapa and os.path.exists(mapa[norm]):
+            return mapa[norm]
+    except Exception:
+        pass
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, filepath)
+
+
 def sincronizar_arquivo(filepath: str, token: str | None = None,
                         commit_msg: str | None = None) -> tuple[bool, str]:
     """
@@ -117,9 +140,8 @@ def sincronizar_arquivo(filepath: str, token: str | None = None,
         if not token:
             return False, "GITHUB_TOKEN não configurado nos Secrets."
 
-        # Resolve o caminho absoluto do arquivo
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        abs_path = os.path.join(base_dir, filepath)
+        # Resolve o caminho absoluto do arquivo (priorizando o diretório isolado de runtime)
+        abs_path = _resolver_caminho_local(filepath)
 
         if not os.path.exists(abs_path):
             return False, f"Arquivo local não encontrado: {filepath}"
@@ -202,8 +224,7 @@ def sincronizar_dados(commit_msg: str | None = None) -> tuple[bool, str]:
         resultados = []
         falhas = 0
         for filepath in SYNC_FILES:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            abs_path = os.path.join(base_dir, filepath)
+            abs_path = _resolver_caminho_local(filepath)
             if os.path.exists(abs_path):
                 ok, msg = sincronizar_arquivo(filepath, token, commit_msg)
                 resultados.append(f"{'✅' if ok else '❌'} {filepath}: {msg}")

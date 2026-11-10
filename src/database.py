@@ -18,77 +18,24 @@ from typing import Optional, Union, List, Dict, Any
 from datetime import datetime, date
 from contextlib import contextmanager
 
+import io
+import shutil
+
 logger = logging.getLogger(__name__)
 
-# Cópia "semente" do banco versionada no repositório. NUNCA é escrita em tempo de execução:
-# no Streamlit Cloud, cada commit de sincronização faz a plataforma atualizar a pasta do
-# repositório, o que sobrescrevia o .db enquanto os arquivos -wal/-shm permaneciam,
-# corrompendo o banco ("database disk image is malformed").
-REPO_DB_SEED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ansef_database.db")
+_DB_SCHEMA_VERSION = "2026-11-10-v4"
 
-
-def _caminho_db_runtime_padrao() -> str:
-    """Caminho de execução isolado fora da árvore do repositório Git."""
-    runtime_dir = os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime_v2")
-    os.makedirs(runtime_dir, exist_ok=True)
-    return os.path.join(runtime_dir, "ansef_database.db")
-
-
-DB_PATH = os.environ.get("ANSEF_DB_PATH") or _caminho_db_runtime_padrao()
-CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "integrantes.csv")
-SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "solicitacoes_backup.json")
-CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "config_precos.json")
-
-def _obter_db_path() -> str:
-    path = os.environ.get("ANSEF_DB_PATH") or DB_PATH
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    return path
-
-
-def _semear_banco_runtime(db_path: str) -> None:
-    """
-    Se o banco de runtime ainda não existir e for o caminho isolado padrão,
-    copia o banco semente versionado no repositório (REPO_DB_SEED_PATH) como base inicial.
-    """
-    try:
-        if os.path.exists(db_path) and os.path.getsize(db_path) > 0:
-            return
-        if os.path.abspath(db_path) != os.path.abspath(_caminho_db_runtime_padrao()):
-            return
-        if not os.path.exists(REPO_DB_SEED_PATH) or os.path.getsize(REPO_DB_SEED_PATH) == 0:
-            return
-        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-        src = sqlite3.connect(REPO_DB_SEED_PATH, timeout=15)
-        dst = sqlite3.connect(db_path, timeout=15)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-            src.close()
-    except Exception as e:
-        logger.warning(f"Aviso ao semear banco de runtime a partir de {REPO_DB_SEED_PATH}: {e}")
-
-def _obter_csv_path() -> str:
-    return os.environ.get("ANSEF_CSV_PATH") or CSV_PATH
-
-def _obter_solicitacoes_backup_path() -> str:
-    return os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or SOLICITACOES_BACKUP_PATH
-
-def _obter_config_precos_path() -> str:
-    return os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or CONFIG_PRECOS_PATH
-
-# Backup permanente (JSON versionado no Git) das declarações ANUAIS — isolado do backup mensal
-DECLARACOES_ANUAIS_BACKUP_PATH = os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "declaracoes_anuais_backup.json")
-
-def _obter_anuais_backup_path() -> str:
-    return os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or DECLARACOES_ANUAIS_BACKUP_PATH
-
-EMAILS_PAGAMENTOS_BACKUP_PATH = os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "data", "emails_pagamentos_backup.json"
-)
-
-def _obter_emails_pag_backup_path() -> str:
-    return os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or EMAILS_PAGAMENTOS_BACKUP_PATH
+# Diretório do repositório e cópias "semente" versionadas no Git (somente leitura em runtime).
+# NUNCA são escritas diretamente em tempo de execução no Streamlit Cloud para jamais sujar
+# a árvore de trabalho do Git local (/mount/src/ansef-declaracoes/data/*) e nunca bloquear git pull.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_DATA_DIR = os.path.join(BASE_DIR, "data")
+REPO_DB_SEED_PATH = os.path.join(REPO_DATA_DIR, "ansef_database.db")
+REPO_CSV_SEED_PATH = os.path.join(REPO_DATA_DIR, "integrantes.csv")
+REPO_SOLICITACOES_SEED_PATH = os.path.join(REPO_DATA_DIR, "solicitacoes_backup.json")
+REPO_CONFIG_PRECOS_SEED_PATH = os.path.join(REPO_DATA_DIR, "config_precos.json")
+REPO_ANUAIS_SEED_PATH = os.path.join(REPO_DATA_DIR, "declaracoes_anuais_backup.json")
+REPO_EMAILS_PAG_SEED_PATH = os.path.join(REPO_DATA_DIR, "emails_pagamentos_backup.json")
 
 TABELA_FAIXAS_PADRAO = [
     ("0 – 18 anos", 0, 18, 350.00, 250.00, 1),
@@ -102,6 +49,407 @@ TABELA_FAIXAS_PADRAO = [
     ("54 – 58 anos", 54, 58, 1554.00, 1110.00, 9),
     ("Acima de 59 anos", 59, 150, 2094.00, 1496.00, 10),
 ]
+
+# Semente autoritativa embarcada dos 35 integrantes (17 titulares + 18 dependentes/agregados)
+# Garante autorrecuperação total mesmo se integrantes.csv no disco estiver ausente ou truncado.
+MEMBROS_PADRAO = [
+    ("Titular", "Admir Tozo", "Admir Tozo", "24/12/1948", ">59", "P", 2094.00, "Titular"),
+    ("Titular", "Carlos Sergio Praciano P.", "Carlos Sergio Praciano P.", "07/09/1955", ">59", "P", 2094.00, "Titular"),
+    ("Dependente", "Ana Aparecida Parente P.", "Carlos Sergio Praciano P.", "03/01/1960", ">59", "P", 2094.00, "Cônjuge"),
+    ("Titular", "Cassio Guilherme Reis S.", "Cassio Guilherme Reis S.", "05/10/1968", "54-58", "C", 1110.00, "Titular"),
+    ("Titular", "Devanyr Romão Jr.", "Devanyr Romão Jr.", "03/09/1963", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Edneia d. Graças Oliveira R.", "Devanyr Romão Jr.", "29/10/1963", ">59", "C", 1496.00, "Cônjuge"),
+    ("Titular", "Eduardo Castro de Ne", "Eduardo Castro de Ne", "23/05/1955", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Carmen Regina Bueno de Ne", "Eduardo Castro de Ne", "23/10/1954", ">59", "C", 1496.00, "Cônjuge"),
+    ("Titular", "Fabio de Paula Guerra", "Fabio de Paula Guerra", "30/07/1977", "44-48", "C", 845.00, "Titular"),
+    ("Dependente", "Letícia Maria de Rosa O. G.", "Fabio de Paula Guerra", "20/10/1975", "49-53", "C", 845.00, "Cônjuge"),
+    ("Titular", "Francisco Sandin Martins", "Francisco Sandin Martins", "12/02/1959", ">59", "C", 1496.00, "Titular"),
+    ("Titular", "Ivan Esteves Ribeiro Filho", "Ivan Esteves Ribeiro Filho", "04/09/1972", "49-53", "C", 1110.00, "Titular"),
+    ("Agregado", "Maria José Soares", "Ivan Esteves Ribeiro Filho", "23/06/1944", ">59", "C", 1496.00, "Mãe"),
+    ("Agregado", "Nestor Padilha", "Ivan Esteves Ribeiro Filho", "29/10/1940", ">59", "C", 0.00, "Sogro"),
+    ("Agregado", "Neiva Baptista Padilha", "Ivan Esteves Ribeiro Filho", "26/11/1939", ">59", "C", 1496.00, "Sogra"),
+    ("Titular", "Jaeder Machado de Araújo", "Jaeder Machado de Araújo", "14/10/1957", ">59", "P", 2094.00, "Titular"),
+    ("Dependente", "Maria Cabrini Grossi A.", "Jaeder Machado de Araújo", "20/09/1956", ">59", "P", 2094.00, "Cônjuge"),
+    ("Titular", "José Luis Cordeiro Marcheori", "José Luis Cordeiro Marcheori", "19/01/1958", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Teresinha Veronez M.", "José Luis Cordeiro Marcheori", "06/04/1962", ">59", "C", 1496.00, "Cônjuge"),
+    ("Titular", "Marcio Carlos Rosa", "Marcio Carlos Rosa", "07/03/1966", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Rosangela Alves Soares", "Marcio Carlos Rosa", "19/10/1965", ">59", "C", 1496.00, "Cônjuge"),
+    ("Agregado", "Catharina Aydee Tempesta R.", "Marcio Carlos Rosa", "12/02/1936", ">59", "C", 1496.00, "Agregado(a)"),
+    ("Dependente", "Danilo Soares Rosa", "Marcio Carlos Rosa", "26/08/2002", "19-23", "C", 340.00, "Filho(a)"),
+    ("Titular", "Nicodemos Assunção dos Santos", "Nicodemos Assunção dos Santos", "26/02/1948", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Creuza Costa dos Santos", "Nicodemos Assunção dos Santos", "31/12/1954", ">59", "C", 1496.00, "Cônjuge"),
+    ("Titular", "Raimundo Henrique de A. Neto", "Raimundo Henrique de A. Neto", "08/07/1965", ">59", "C", 1496.00, "Titular"),
+    ("Dependente", "Zelandia Santana de Araujo", "Raimundo Henrique de A. Neto", "26/12/1962", ">59", "C", 1496.00, "Cônjuge"),
+    ("Titular", "Renan Marçal Rodrigues", "Renan Marçal Rodrigues", "22/11/1965", "54-58", "P", 2094.00, "Titular"),
+    ("Titular", "Vera Lucia Damasio Marques e S.", "Vera Lucia Damasio Marques e S.", "16/07/1953", ">59", "P", 2094.00, "Titular"),
+    ("Titular", "Lea Barbosa Diogenes dos Anjos", "Lea Barbosa Diogenes dos Anjos", "03/01/1948", ">59", "C", 1496.00, "Titular"),
+    ("Titular", "Sergio Luiz de Mello Furtado Motta", "Sergio Luiz de Mello Furtado Motta", "24/06/1980", "44-48", "C", 612.00, "Titular"),
+    ("Dependente", "Juliany Boaventura de Miranda Motta", "Sergio Luiz de Mello Furtado Motta", "10/03/1984", "39-43", "C", 448.00, "Cônjuge"),
+    ("Dependente", "Filipe de Miranda Motta", "Sergio Luiz de Mello Furtado Motta", "06/05/2006", "19-23", "C", 295.00, "Filho(a)"),
+    ("Dependente", "Davi de Miranda Motta", "Sergio Luiz de Mello Furtado Motta", "21/01/2010", "0-18", "C", 250.00, "Filho(a)"),
+    ("Dependente", "Levi de Miranda Motta", "Sergio Luiz de Mello Furtado Motta", "31/08/2017", "0-18", "C", 250.00, "Filho(a)"),
+]
+
+# Solicitações #84–#93 registradas em 10/11/2026 preservadas em código para garantir
+# que nunca sejam perdidas mesmo quando data/solicitacoes_backup.json no Git permanece no SHA base.
+SOLICITACOES_RECENTES_SEED = [
+    {
+        "id": 84,
+        "codigo_validacao": "ANSEF-2026-11DC6FF0",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 4,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/04/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:34:20",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 85,
+        "codigo_validacao": "ANSEF-2026-FD313F0C",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 4,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/04/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:34:21",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 86,
+        "codigo_validacao": "ANSEF-2026-7EAD096F",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 5,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/05/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:38:06",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 87,
+        "codigo_validacao": "ANSEF-2026-1B5AA9F4",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 6,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/06/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:38:38",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 88,
+        "codigo_validacao": "ANSEF-2026-3D2502C4",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 7,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/07/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:39:18",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 89,
+        "codigo_validacao": "ANSEF-2026-0DB6FE46",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 8,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/08/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:39:55",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 90,
+        "codigo_validacao": "ANSEF-2026-6E165387",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 9,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/09/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:40:39",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 91,
+        "codigo_validacao": "ANSEF-2026-0DC58B77",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 10,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/10/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:40:59",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 92,
+        "codigo_validacao": "ANSEF-2026-0699FFD1",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 11,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/11/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:41:23",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+    {
+        "id": 93,
+        "codigo_validacao": "ANSEF-2026-9730DD51",
+        "titular_nome": "Renan Marçal Rodrigues",
+        "titular_cpf": "06187845862",
+        "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2094.0}]",
+        "mes_referencia": 11,
+        "ano_referencia": 2026,
+        "data_pagamento": "05/11/2026",
+        "valor_total": 2094.0,
+        "status": "PENDENTE",
+        "data_solicitacao": "2026-11-10 19:41:24",
+        "data_analise": None,
+        "observacoes_admin": None,
+    },
+]
+
+
+def _escrever_texto_atomico(caminho: str, conteudo: str, encoding: str = "utf-8") -> None:
+    """Escreve arquivo de forma atômica (via arquivo temporário + os.replace) para evitar truncamento."""
+    pasta = os.path.dirname(os.path.abspath(caminho))
+    os.makedirs(pasta, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=pasta, prefix=".tmp_", suffix=os.path.splitext(caminho)[1] or ".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
+            f.write(conteudo)
+        os.replace(tmp_path, caminho)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
+
+
+def _caminho_runtime_dir() -> str:
+    """Diretório de execução isolado fora da árvore do repositório Git."""
+    runtime_dir = os.path.join(tempfile.gettempdir(), "ansef_declaracoes_runtime_v4")
+    os.makedirs(runtime_dir, exist_ok=True)
+    return runtime_dir
+
+
+def _caminho_db_runtime_padrao() -> str:
+    """Caminho de execução isolado do banco SQLite fora da árvore do repositório Git."""
+    return os.path.join(_caminho_runtime_dir(), "ansef_database.db")
+
+
+def _gerar_csv_padrao_texto() -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow([
+        "Classificacao", "Nome", "Titular", "Nascimento",
+        "Faixa", "Tipo_Plano", "Valor_Mensalidade", "Grau_Parentesco"
+    ])
+    for item in MEMBROS_PADRAO:
+        writer.writerow([
+            item[0], item[1], item[2], item[3],
+            item[4], item[5], f"{ float(item[6]):.2f}", item[7]
+        ])
+    return buf.getvalue()
+
+
+def _semear_arquivos_runtime() -> None:
+    """
+    Inicializa os arquivos de dados no diretório isolado de runtime a partir das sementes
+    do repositório (validando integridade e corrigindo estados truncados ou corrompidos).
+    """
+    rt_dir = _caminho_runtime_dir()
+
+    # 1. integrantes.csv
+    rt_csv = os.path.join(rt_dir, "integrantes.csv")
+    if not os.path.exists(rt_csv) or os.path.getsize(rt_csv) < 200:
+        usou_seed = False
+        if os.path.exists(REPO_CSV_SEED_PATH) and os.path.getsize(REPO_CSV_SEED_PATH) >= 200:
+            try:
+                with open(REPO_CSV_SEED_PATH, "r", encoding="utf-8-sig") as f:
+                    rows = [r for r in csv.DictReader(f) if r.get("Classificacao", "").strip()]
+                if len(rows) >= len(MEMBROS_PADRAO):
+                    shutil.copyfile(REPO_CSV_SEED_PATH, rt_csv)
+                    usou_seed = True
+            except Exception:
+                usou_seed = False
+        if not usou_seed:
+            _escrever_texto_atomico(rt_csv, _gerar_csv_padrao_texto())
+
+    # 2. config_precos.json
+    rt_precos = os.path.join(rt_dir, "config_precos.json")
+    if not os.path.exists(rt_precos) or os.path.getsize(rt_precos) < 50:
+        if os.path.exists(REPO_CONFIG_PRECOS_SEED_PATH):
+            try:
+                with open(REPO_CONFIG_PRECOS_SEED_PATH, "r", encoding="utf-8") as f:
+                    data_p = json.load(f)
+                att_str = str(data_p.get("ultima_atualizacao", ""))
+                fx_list = data_p.get("tabela_faixas_etarias", [])
+                # Ignora estado intermediário defeituoso gerado durante o incidente de 10/11 às 20:18/20:19
+                if att_str.startswith(("2026-11-10T20:18", "2026-11-10T20:19")) or len(fx_list) < len(TABELA_FAIXAS_PADRAO):
+                    data_p["ultima_atualizacao"] = "2026-09-25T16:40:26.748436"
+                    data_p["tabela_faixas_etarias"] = [
+                        {
+                            "id": idx,
+                            "faixa_etaria": item[0],
+                            "idade_min": item[1],
+                            "idade_max": item[2],
+                            "valor_privativo": float(item[3]),
+                            "valor_coletivo": float(item[4]),
+                            "ordem": item[5],
+                        }
+                        for idx, item in enumerate(TABELA_FAIXAS_PADRAO, start=1)
+                    ]
+                _escrever_texto_atomico(rt_precos, json.dumps(data_p, ensure_ascii=False, indent=2))
+            except Exception:
+                pass
+
+    # 3. solicitacoes_backup.json
+    rt_solic = os.path.join(rt_dir, "solicitacoes_backup.json")
+    if not os.path.exists(rt_solic) or os.path.getsize(rt_solic) < 10:
+        lista_solic = []
+        if os.path.exists(REPO_SOLICITACOES_SEED_PATH):
+            try:
+                with open(REPO_SOLICITACOES_SEED_PATH, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        lista_solic = loaded
+            except Exception:
+                lista_solic = []
+        ids_existentes = {item.get("id") for item in lista_solic if isinstance(item, dict)}
+        cods_existentes = {item.get("codigo_validacao") for item in lista_solic if isinstance(item, dict) and item.get("codigo_validacao")}
+        for s_seed in SOLICITACOES_RECENTES_SEED:
+            if s_seed["id"] not in ids_existentes and s_seed["codigo_validacao"] not in cods_existentes:
+                lista_solic.append(dict(s_seed))
+        if lista_solic:
+            _escrever_texto_atomico(rt_solic, json.dumps(lista_solic, ensure_ascii=False, indent=2))
+
+    # 4. declaracoes_anuais_backup.json
+    rt_anuais = os.path.join(rt_dir, "declaracoes_anuais_backup.json")
+    if not os.path.exists(rt_anuais) and os.path.exists(REPO_ANUAIS_SEED_PATH):
+        try:
+            shutil.copyfile(REPO_ANUAIS_SEED_PATH, rt_anuais)
+        except Exception:
+            pass
+
+    # 5. emails_pagamentos_backup.json
+    rt_emails = os.path.join(rt_dir, "emails_pagamentos_backup.json")
+    if not os.path.exists(rt_emails) and os.path.exists(REPO_EMAILS_PAG_SEED_PATH):
+        try:
+            shutil.copyfile(REPO_EMAILS_PAG_SEED_PATH, rt_emails)
+        except Exception:
+            pass
+
+
+_semear_arquivos_runtime()
+
+DB_PATH = os.environ.get("ANSEF_DB_PATH") or _caminho_db_runtime_padrao()
+CSV_PATH = os.environ.get("ANSEF_CSV_PATH") or os.path.join(_caminho_runtime_dir(), "integrantes.csv")
+SOLICITACOES_BACKUP_PATH = os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or os.path.join(_caminho_runtime_dir(), "solicitacoes_backup.json")
+CONFIG_PRECOS_PATH = os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or os.path.join(_caminho_runtime_dir(), "config_precos.json")
+
+def _obter_db_path() -> str:
+    path = os.environ.get("ANSEF_DB_PATH") or DB_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    return path
+
+
+def _semear_banco_runtime(db_path: str) -> None:
+    """
+    Se o banco de runtime ainda não existir e for o caminho isolado padrão,
+    copia o banco semente versionado no repositório (REPO_DB_SEED_PATH) apenas se
+    não houver arquivos -wal/-shm residuais e o banco semente estiver íntegro.
+    """
+    try:
+        if getattr(_recuperacao_estado, "ativo", False):
+            return
+        if os.path.exists(db_path) and os.path.getsize(db_path) > 0:
+            return
+        if os.path.abspath(db_path) != os.path.abspath(_caminho_db_runtime_padrao()):
+            return
+        if not os.path.exists(REPO_DB_SEED_PATH) or os.path.getsize(REPO_DB_SEED_PATH) == 0:
+            return
+        # Se o arquivo semente no container tiver -wal/-shm residual de execuções antigas,
+        # não copia o binário potencialmente inconsistente: deixa inicializar_banco() construir limpo.
+        if os.path.exists(REPO_DB_SEED_PATH + "-wal") or os.path.exists(REPO_DB_SEED_PATH + "-shm"):
+            return
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        src = sqlite3.connect(REPO_DB_SEED_PATH, timeout=15)
+        dst = sqlite3.connect(db_path, timeout=15)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        if not _banco_integro(db_path):
+            _isolar_banco_corrompido(db_path)
+    except Exception as e:
+        logger.warning(f"Aviso ao semear banco de runtime a partir de {REPO_DB_SEED_PATH}: {e}")
+
+def _obter_csv_path() -> str:
+    _semear_arquivos_runtime()
+    return os.environ.get("ANSEF_CSV_PATH") or CSV_PATH
+
+def _obter_solicitacoes_backup_path() -> str:
+    _semear_arquivos_runtime()
+    return os.environ.get("ANSEF_SOLICITACOES_BACKUP_PATH") or SOLICITACOES_BACKUP_PATH
+
+def _obter_config_precos_path() -> str:
+    _semear_arquivos_runtime()
+    return os.environ.get("ANSEF_CONFIG_PRECOS_PATH") or CONFIG_PRECOS_PATH
+
+# Backup permanente das declarações ANUAIS — isolado em runtime
+DECLARACOES_ANUAIS_BACKUP_PATH = os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or os.path.join(_caminho_runtime_dir(), "declaracoes_anuais_backup.json")
+
+def _obter_anuais_backup_path() -> str:
+    _semear_arquivos_runtime()
+    return os.environ.get("ANSEF_ANUAIS_BACKUP_PATH") or DECLARACOES_ANUAIS_BACKUP_PATH
+
+EMAILS_PAGAMENTOS_BACKUP_PATH = os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or os.path.join(
+    _caminho_runtime_dir(), "emails_pagamentos_backup.json"
+)
+
+def _obter_emails_pag_backup_path() -> str:
+    _semear_arquivos_runtime()
+    return os.environ.get("ANSEF_EMAILS_PAG_BACKUP_PATH") or EMAILS_PAGAMENTOS_BACKUP_PATH
 
 
 # ─── INTEGRIDADE E AUTORRECUPERAÇÃO DO BANCO ─────────────────────────────────
@@ -689,14 +1037,20 @@ def inicializar_banco():
         except Exception as e:
             logger.warning(f"Inicializacao de e-mails/pagamentos ignorada: {e}")
 
-        # Assegura que solicitações aprovadas sem PDF tenham o PDF gerado (com commit incremental)
-        _garantir_pdfs_solicitacoes_aprovadas(conn)
-        try:
-            _garantir_pdfs_anuais_aprovadas(conn)
-        except Exception as e:
-            logger.warning(f"Síntese de PDFs anuais ignorada: {e}")
-
         conn.commit()
+
+        # Síntese em background de PDFs aprovados pendentes (não bloqueia inicialização nem UI)
+        def _synth_bg():
+            try:
+                with get_connection() as c_bg:
+                    _garantir_pdfs_solicitacoes_aprovadas(c_bg)
+                    try:
+                        _garantir_pdfs_anuais_aprovadas(c_bg)
+                    except Exception:
+                        pass
+            except Exception as ex_bg:
+                logger.debug(f"Síntese assíncrona de PDFs: {ex_bg}")
+        threading.Thread(target=_synth_bg, daemon=True).start()
     except Exception:
         conn.rollback()
         raise
@@ -705,44 +1059,64 @@ def inicializar_banco():
 
 
 def _carregar_csv(conn, forcar: bool = False):
-    """Carrega os dados do CSV de integrantes para a tabela membros, garantindo sincronia total com o repositório."""
+    """Carrega os dados do CSV de integrantes para a tabela membros, garantindo sincronia total e integridade."""
     csv_path = _obter_csv_path()
-    if not os.path.exists(csv_path):
-        return
 
-    # Se a tabela membros já possui registros e não foi solicitada carga forçada,
-    # mantém os registros existentes para evitar recriação contínua e garantir IDs estáveis.
+    # Se a tabela membros já possui registros suficientes e não foi solicitada carga forçada, mantém.
     count = conn.execute("SELECT COUNT(*) FROM membros").fetchone()[0]
-    if count > 0 and not forcar:
+    count_titulares = conn.execute("SELECT COUNT(*) FROM membros WHERE UPPER(tipo) = 'TITULAR'").fetchone()[0]
+    if count >= 30 and count_titulares >= 17 and not forcar:
         return
 
-    # Limpa a tabela membros para refletir fielmente o CSV sincronizado no repositório
-    conn.execute("DELETE FROM membros")
-    try:
-        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'membros'")
-    except Exception:
-        pass
+    linhas_para_inserir = []
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, "r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    classificacao = row.get("Classificacao", "").strip()
+                    nome = row.get("Nome", "").strip()
+                    titular = row.get("Titular", "").strip()
+                    if not classificacao or not nome or not titular:
+                        continue
 
-    with open(csv_path, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            classificacao = row.get("Classificacao", "").strip()
-            if not classificacao:
-                continue
+                    nascimento = row.get("Nascimento", "").strip()
+                    faixa = row.get("Faixa", "").strip()
+                    tipo_plano = row.get("Tipo_Plano", "").strip()
+                    grau = row.get("Grau_Parentesco", "").strip()
 
-            nome = row.get("Nome", "").strip()
-            titular = row.get("Titular", "").strip()
-            nascimento = row.get("Nascimento", "").strip()
-            faixa = row.get("Faixa", "").strip()
-            tipo_plano = row.get("Tipo_Plano", "").strip()
-            grau = row.get("Grau_Parentesco", "").strip()
+                    try:
+                        valor = float(row.get("Valor_Mensalidade", "0").replace(",", "."))
+                    except (ValueError, TypeError):
+                        valor = 0.0
 
-            try:
-                valor = float(row.get("Valor_Mensalidade", "0").replace(",", "."))
-            except (ValueError, TypeError):
-                valor = 0.0
+                    # Converte data DD/MM/AAAA para YYYY-MM-DD
+                    data_iso = ""
+                    if nascimento:
+                        try:
+                            dt = datetime.strptime(nascimento, "%d/%m/%Y")
+                            data_iso = dt.strftime("%Y-%m-%d")
+                        except ValueError:
+                            data_iso = nascimento
 
-            # Converte data DD/MM/AAAA para YYYY-MM-DD
+                    linhas_para_inserir.append((
+                        classificacao.upper(),
+                        titular,
+                        nome,
+                        grau,
+                        data_iso,
+                        faixa,
+                        tipo_plano,
+                        valor
+                    ))
+        except Exception as e:
+            logger.warning(f"Erro ao ler CSV de integrantes ({csv_path}): {e}")
+
+    # Fallback seguro caso o arquivo CSV no disco esteja truncado, ausente ou corrompido:
+    if len(linhas_para_inserir) < len(MEMBROS_PADRAO):
+        linhas_para_inserir = []
+        for item in MEMBROS_PADRAO:
+            classificacao, nome, titular, nascimento, faixa, tipo_plano, valor, grau = item
             data_iso = ""
             if nascimento:
                 try:
@@ -750,13 +1124,7 @@ def _carregar_csv(conn, forcar: bool = False):
                     data_iso = dt.strftime("%Y-%m-%d")
                 except ValueError:
                     data_iso = nascimento
-
-            conn.execute("""
-                INSERT INTO membros (tipo, titular_nome, beneficiario_nome,
-                    grau_parentesco, data_nascimento, faixa_etaria, tipo_plano,
-                    valor_mensalidade)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            linhas_para_inserir.append((
                 classificacao.upper(),
                 titular,
                 nome,
@@ -764,8 +1132,27 @@ def _carregar_csv(conn, forcar: bool = False):
                 data_iso,
                 faixa,
                 tipo_plano,
-                valor
+                float(valor)
             ))
+        try:
+            _escrever_texto_atomico(csv_path, _gerar_csv_padrao_texto())
+        except Exception:
+            pass
+
+    # Limpa a tabela membros somente quando tivermos a lista válida e completa pronta para inserção
+    conn.execute("DELETE FROM membros")
+    try:
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'membros'")
+    except Exception:
+        pass
+
+    for r in linhas_para_inserir:
+        conn.execute("""
+            INSERT INTO membros (tipo, titular_nome, beneficiario_nome,
+                grau_parentesco, data_nascimento, faixa_etaria, tipo_plano,
+                valor_mensalidade)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, r)
 
 
 def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
@@ -779,37 +1166,38 @@ def _sincronizar_csv_com_banco(conn, sync_git: bool = True):
             ORDER BY id
         """).fetchall()
 
-        if not rows:
+        if not rows or len(rows) < 17:
             return
 
-        with open(csv_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "Classificacao", "Nome", "Titular", "Nascimento",
-                "Faixa", "Tipo_Plano", "Valor_Mensalidade", "Grau_Parentesco"
-            ])
-            for r in rows:
-                dt_str = r["data_nascimento"]
-                if dt_str and "-" in dt_str:
-                    try:
-                        dt = datetime.strptime(dt_str, "%Y-%m-%d")
-                        dt_br = dt.strftime("%d/%m/%Y")
-                    except Exception:
-                        dt_br = dt_str
-                else:
-                    dt_br = dt_str or ""
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\n")
+        writer.writerow([
+            "Classificacao", "Nome", "Titular", "Nascimento",
+            "Faixa", "Tipo_Plano", "Valor_Mensalidade", "Grau_Parentesco"
+        ])
+        for r in rows:
+            dt_str = r["data_nascimento"]
+            if dt_str and "-" in dt_str:
+                try:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d")
+                    dt_br = dt.strftime("%d/%m/%Y")
+                except Exception:
+                    dt_br = dt_str
+            else:
+                dt_br = dt_str or ""
 
-                tipo_cap = r["tipo"].capitalize() if r["tipo"] else "Titular"
-                writer.writerow([
-                    tipo_cap,
-                    r["beneficiario_nome"],
-                    r["titular_nome"],
-                    dt_br,
-                    r["faixa_etaria"] or "",
-                    r["tipo_plano"] or "C",
-                    f"{r['valor_mensalidade']:.2f}",
-                    r["grau_parentesco"] or ""
-                ])
+            tipo_cap = r["tipo"].capitalize() if r["tipo"] else "Titular"
+            writer.writerow([
+                tipo_cap,
+                r["beneficiario_nome"],
+                r["titular_nome"],
+                dt_br,
+                r["faixa_etaria"] or "",
+                r["tipo_plano"] or "C",
+                f"{r['valor_mensalidade']:.2f}",
+                r["grau_parentesco"] or ""
+            ])
+        _escrever_texto_atomico(csv_path, buf.getvalue())
     except Exception as e:
         logger.error(f"Erro ao sincronizar CSV: {e}")
     else:
@@ -1155,9 +1543,7 @@ def _salvar_backup_solicitacoes(conn=None, sync_git: bool = True) -> None:
                 item = dict(r)
                 item.pop("pdf_gerado", None)
                 data.append(item)
-            os.makedirs(os.path.dirname(caminho), exist_ok=True)
-            with open(caminho, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            _escrever_texto_atomico(caminho, json.dumps(data, ensure_ascii=False, indent=2))
 
         if conn:
             _exec(conn)
@@ -1177,14 +1563,23 @@ def _carregar_backup_solicitacoes(conn) -> int:
     Cada registro é processado individualmente para que uma falha em um item não impeça os demais.
     """
     caminho = _obter_solicitacoes_backup_path()
-    if not os.path.exists(caminho):
-        return 0
-
     try:
-        with open(caminho, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not data or not isinstance(data, list):
-            return 0
+        data = []
+        if os.path.exists(caminho):
+            try:
+                with open(caminho, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        data = loaded
+            except Exception as e:
+                logger.warning(f"Erro ao carregar backup de solicitacoes ({caminho}): {e}")
+
+        # Mescla solicitações recentes de semente caso não estejam no JSON
+        ids_existentes = {item.get("id") for item in data if isinstance(item, dict)}
+        cods_existentes = {item.get("codigo_validacao") for item in data if isinstance(item, dict) and item.get("codigo_validacao")}
+        for s_seed in SOLICITACOES_RECENTES_SEED:
+            if s_seed["id"] not in ids_existentes and s_seed["codigo_validacao"] not in cods_existentes:
+                data.append(dict(s_seed))
 
         total_restaurados = 0
         for item in data:
@@ -1486,9 +1881,7 @@ def _salvar_backup_precos(conn=None, sync_git: bool = True) -> bool:
                 "config_valores": config_valores,
             }
 
-            os.makedirs(os.path.dirname(caminho_precos), exist_ok=True)
-            with open(caminho_precos, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            _escrever_texto_atomico(caminho_precos, json.dumps(payload, ensure_ascii=False, indent=2))
             return True
 
         if conn:
@@ -1522,7 +1915,10 @@ def _carregar_backup_precos(conn) -> bool:
         if not data or not isinstance(data, dict):
             return False
 
-        json_ultima_att = data.get("ultima_atualizacao", "")
+        json_ultima_att = str(data.get("ultima_atualizacao", ""))
+        # Ignora timestamp gerado no incidente de 10/11 com dupla aplicação ou corrupção
+        if json_ultima_att.startswith(("2026-11-10T20:18", "2026-11-10T20:19")):
+            json_ultima_att = ""
 
         # 1. Restaura Uniodonto valor por vida (com comparação de timestamp)
         cfg_u = data.get("config_uniodonto", {})
@@ -2504,9 +2900,7 @@ def _salvar_backup_anuais(conn=None, sync_git: bool = True) -> None:
                 item = dict(r)
                 item.pop("pdf_gerado", None)
                 data.append(item)
-            os.makedirs(os.path.dirname(caminho), exist_ok=True)
-            with open(caminho, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            _escrever_texto_atomico(caminho, json.dumps(data, ensure_ascii=False, indent=2))
 
         if conn:
             _exec(conn)
@@ -2905,9 +3299,7 @@ def _salvar_backup_emails_pagamentos(conn=None, sync_git: bool = True, mesclar_a
             "emails": list(existentes_emails.values()),
             "pagamentos": list(existentes_pags.values()),
         }
-        os.makedirs(os.path.dirname(os.path.abspath(backup_path)), exist_ok=True)
-        with open(backup_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        _escrever_texto_atomico(backup_path, json.dumps(payload, ensure_ascii=False, indent=2))
 
         if os.path.exists(backup_path):
             _ultimo_backup_emails_pagamentos_mtime = os.path.getmtime(backup_path)
