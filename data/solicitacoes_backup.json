@@ -1228,20 +1228,5 @@
     "data_solicitacao": "2026-11-10 19:41:24",
     "data_analise": null,
     "observacoes_admin": null
-  },
-  {
-    "id": 94,
-    "codigo_validacao": "ANSEF-2026-D7C67E81",
-    "titular_nome": "TESTE PERSISTENCIA TITULAR",
-    "titular_cpf": "11122233344",
-    "dependentes_incluidos": "[{\"nome\": \"TESTE PERSISTENCIA TITULAR\", \"parentesco\": \"Titular\", \"valor\": 500.0}]",
-    "mes_referencia": 2,
-    "ano_referencia": 2026,
-    "data_pagamento": "10/02/2026",
-    "valor_total": 500.0,
-    "status": "PENDENTE",
-    "data_solicitacao": "2026-11-10 20:54:13",
-    "data_analise": null,
-    "observacoes_admin": null
   }
 ]
