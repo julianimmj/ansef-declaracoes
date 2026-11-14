@@ -1258,5 +1258,20 @@
     "data_solicitacao": "2026-11-12 14:51:51",
     "data_analise": "2026-11-13T10:38:07.546075",
     "observacoes_admin": null
+  },
+  {
+    "id": 96,
+    "codigo_validacao": "ANSEF-2026-CB39DC51",
+    "titular_nome": "Renan Marçal Rodrigues",
+    "titular_cpf": "06187845862",
+    "dependentes_incluidos": "[{\"nome\": \"Renan Marçal Rodrigues\", \"parentesco\": \"Titular\", \"valor\": 2182.37}]",
+    "mes_referencia": 4,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/04/2026",
+    "valor_total": 2182.37,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-11-14 17:32:09",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
