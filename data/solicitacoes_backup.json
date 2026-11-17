@@ -1283,10 +1283,10 @@
     "mes_referencia": 11,
     "ano_referencia": 2026,
     "data_pagamento": "10/11/2026",
-    "valor_total": 1495.7,
-    "status": "PENDENTE",
+    "valor_total": 1559.13,
+    "status": "APROVADO",
     "data_solicitacao": "2026-11-17 12:30:20",
-    "data_analise": null,
+    "data_analise": "2026-11-17T22:40:08.864956",
     "observacoes_admin": null
   },
   {
