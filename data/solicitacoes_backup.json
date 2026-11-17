@@ -1273,5 +1273,20 @@
     "data_solicitacao": "2026-11-14 17:32:09",
     "data_analise": "2026-11-16T15:55:19.812739",
     "observacoes_admin": "Valor divergente do valor efetivamente pago."
+  },
+  {
+    "id": 97,
+    "codigo_validacao": "ANSEF-2026-4FABAF97",
+    "titular_nome": "Marcio Carlos Rosa",
+    "titular_cpf": "57966346668",
+    "dependentes_incluidos": "[{\"nome\": \"Rosangela Alves Soares\", \"parentesco\": \"Cônjuge\", \"valor\": 1559.13}]",
+    "mes_referencia": 11,
+    "ano_referencia": 2026,
+    "data_pagamento": "10/11/2026",
+    "valor_total": 1495.7,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-11-17 12:30:20",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
