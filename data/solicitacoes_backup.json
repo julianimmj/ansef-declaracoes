@@ -1329,9 +1329,9 @@
     "ano_referencia": 2026,
     "data_pagamento": "10/11/2026",
     "valor_total": 1761.32,
-    "status": "PENDENTE",
+    "status": "REJEITADO",
     "data_solicitacao": "2026-11-19 18:26:39",
-    "data_analise": null,
-    "observacoes_admin": null
+    "data_analise": "2026-11-19T19:26:00.291158",
+    "observacoes_admin": "Valor divergente. Em novembro o valor depositado foi :\nFabio de Paula Guerra R$ 845,00\nLetícia Maria de Rosa O. G. R$ 845,00\nValor Total Final  R$ 1.690,00"
   }
 ]
