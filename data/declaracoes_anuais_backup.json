@@ -96,5 +96,19 @@
     "data_solicitacao": "2026-11-20 08:23:12",
     "data_analise": "2026-11-20T10:43:59.690165",
     "observacoes_admin": "Valor informado encontra-se divergente.\nValor correto R$1496,00."
+  },
+  {
+    "id": 10,
+    "codigo_validacao": "ANSEF-A2026-0BC08A2B",
+    "titular_nome": "Lea Barbosa Diogenes dos Anjos",
+    "titular_cpf": "01921461730",
+    "ano_referencia": 2026,
+    "meses_incluidos": "[4, 5, 6, 7, 8, 9, 10, 11]",
+    "beneficiarios": "[{\"nome\": \"Lea Barbosa Diogenes dos Anjos\", \"parentesco\": \"Titular\", \"valor_mensal\": 1496.0, \"qtd_meses\": 8, \"valor_total\": 11968.0}]",
+    "valor_total": 11968.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-11-20 19:17:32",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
