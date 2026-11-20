@@ -64,10 +64,10 @@
     "meses_incluidos": "[1, 2, 3, 4, 5, 6, 7, 8, 9]",
     "beneficiarios": "[{\"nome\": \"Lea Barbosa Diogenes dos Anjos\", \"parentesco\": \"Titular\", \"valor_mensal\": 1559.13, \"qtd_meses\": 9, \"valor_total\": 14032.17}]",
     "valor_total": 14032.17,
-    "status": "PENDENTE",
+    "status": "REJEITADO",
     "data_solicitacao": "2026-11-20 00:57:03",
-    "data_analise": null,
-    "observacoes_admin": null
+    "data_analise": "2026-11-20T10:43:22.257672",
+    "observacoes_admin": "Valor informado encontra-se divergente.\nValor correto R$1496,00."
   },
   {
     "id": 8,
