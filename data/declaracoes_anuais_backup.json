@@ -82,5 +82,19 @@
     "data_solicitacao": "2026-11-20 00:57:37",
     "data_analise": null,
     "observacoes_admin": null
+  },
+  {
+    "id": 9,
+    "codigo_validacao": "ANSEF-A2026-E752979B",
+    "titular_nome": "Lea Barbosa Diogenes dos Anjos",
+    "titular_cpf": "01921461730",
+    "ano_referencia": 2026,
+    "meses_incluidos": "[4, 5, 6, 7, 8, 9, 10, 11]",
+    "beneficiarios": "[{\"nome\": \"Lea Barbosa Diogenes dos Anjos\", \"parentesco\": \"Titular\", \"valor_mensal\": 1569.0, \"qtd_meses\": 8, \"valor_total\": 12552.0}]",
+    "valor_total": 12552.0,
+    "status": "PENDENTE",
+    "data_solicitacao": "2026-11-20 08:23:12",
+    "data_analise": null,
+    "observacoes_admin": null
   }
 ]
