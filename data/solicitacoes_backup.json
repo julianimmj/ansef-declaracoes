@@ -1374,10 +1374,10 @@
     "ano_referencia": 2026,
     "data_pagamento": "10/10/2026",
     "valor_total": 1690.0,
-    "status": "PENDENTE",
+    "status": "REJEITADO",
     "data_solicitacao": "2026-11-23 15:57:29",
-    "data_analise": null,
-    "observacoes_admin": null
+    "data_analise": "2026-11-23T16:15:09.548001",
+    "observacoes_admin": "Já houve emissão da respectiva declaração. Duplicidade."
   },
   {
     "id": 104,
